@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "kafka_ecom_db",
+      "Group": "Databases",
+      "Host": "postgres",
+      "Port": 5432,
+      "Username": "postgres",
+      "Password": "postgres",
+      "MaintenanceDB": "postgres",
+      "SSLMode": "prefer",
+      "Comment": "Main Kafka E-commerce Database"
+    }
+  }
+}

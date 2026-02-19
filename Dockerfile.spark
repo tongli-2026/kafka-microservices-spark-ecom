@@ -1,0 +1,20 @@
+FROM apache/spark:3.5.1
+
+USER root
+
+# Install PySpark and required packages
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir \
+    pyspark==3.5.0 \
+    kafka-python==2.0.2 \
+    psycopg2-binary==2.9.9
+
+# Create .ivy2 cache directory and set permissions
+RUN mkdir -p /home/spark/.ivy2/cache && \
+    mkdir -p /home/spark/.ivy2/jars && \
+    chown -R spark:spark /home/spark/.ivy2
+
+# Switch back to spark user
+USER spark
+
+WORKDIR /opt/spark

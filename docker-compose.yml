@@ -1,0 +1,347 @@
+services:
+  kafka-broker-1:
+    image: apache/kafka:latest
+    container_name: kafka-broker-1
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-broker-1:9092,CONTROLLER://kafka-broker-1:9093,EXTERNAL://0.0.0.0:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-broker-1:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CLUSTER_ID: "MkwNYEm3OTiUKRnrNEmmVg"
+      TZ: America/Los_Angeles
+    networks:
+      - kafka-network
+
+  kafka-broker-2:
+    image: apache/kafka:latest
+    container_name: kafka-broker-2
+    ports:
+      - "9093:9092"
+      - "9095:9094"
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-broker-2:9092,CONTROLLER://kafka-broker-2:9093,EXTERNAL://0.0.0.0:9095"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-broker-2:9092,EXTERNAL://localhost:9095"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CLUSTER_ID: "MkwNYEm3OTiUKRnrNEmmVg"
+      TZ: America/Los_Angeles
+    networks:
+      - kafka-network
+
+  kafka-broker-3:
+    image: apache/kafka:latest
+    container_name: kafka-broker-3
+    ports:
+      - "9091:9092"
+      - "9096:9094"
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-broker-3:9092,CONTROLLER://kafka-broker-3:9093,EXTERNAL://0.0.0.0:9096"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-broker-3:9092,EXTERNAL://localhost:9096"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CLUSTER_ID: "MkwNYEm3OTiUKRnrNEmmVg"
+      TZ: America/Los_Angeles
+    networks:
+      - kafka-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      KAFKA_CLUSTERS_0_READONLY: false
+      KAFKA_CLUSTERS_0_TOPIC_AUTO_CREATE: true
+      TZ: America/Los_Angeles
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    networks:
+      - kafka-network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: kafka_ecom
+      TZ: America/Los_Angeles
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@kafka-ecom.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      TZ: America/Los_Angeles
+    ports:
+      - "5050:80"
+    networks:
+      - kafka-network
+    depends_on:
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - kafka-network
+    environment:
+      - TZ=America/Los_Angeles
+
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - kafka-network
+    environment:
+      - TZ=America/Los_Angeles
+
+  cart-service:
+    build:
+      context: .
+      dockerfile: services/cart-service/Dockerfile
+    container_name: cart-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - redis
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TZ=America/Los_Angeles
+
+  order-service:
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    container_name: order-service
+    ports:
+      - "8002:8002"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - postgres
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - TZ=America/Los_Angeles
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    container_name: payment-service
+    ports:
+      - "8003:8003"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - postgres
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - TZ=America/Los_Angeles
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: services/inventory-service/Dockerfile
+    container_name: inventory-service
+    ports:
+      - "8004:8004"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - postgres
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - TZ=America/Los_Angeles
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    container_name: notification-service
+    ports:
+      - "8005:8005"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - mailhog
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - MAILHOG_HOST=mailhog
+      - MAILHOG_PORT=1025
+      - ADMIN_EMAIL=admin@kafka-ecom.local
+      - TZ=America/Los_Angeles
+
+  # Spark Master - Cluster Manager
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-master
+    command: >
+      bash -c "
+      /opt/spark/sbin/start-master.sh &&
+      tail -f /opt/spark/logs/spark--org.apache.spark.deploy.master*.out
+      "
+    ports:
+      - "9080:8080"  # Spark Master UI (changed to 9080 to avoid conflict with Kafka UI)
+      - "7077:7077"  # Spark Master port
+    volumes:
+      - ./analytics:/opt/spark-apps
+      - ./data:/opt/spark-data
+    networks:
+      - kafka-network
+    environment:
+      - TZ=America/Los_Angeles
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+
+  # Spark Worker 1 - Acts as both worker and driver
+  spark-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-worker-1
+    hostname: spark-worker-1
+    command: >
+      bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 --cores 4 --memory 4g &&
+      tail -f /opt/spark/logs/spark--org.apache.spark.deploy.worker*.out"
+    ports:
+      - "8081:8081"  # Worker UI
+      - "4040:4040"  # Driver UI
+    depends_on:
+      - spark-master
+    volumes:
+      - ./analytics:/opt/spark-apps
+      - ./data:/opt/spark-data
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - TZ=America/Los_Angeles
+
+  # Spark Worker 2 - Worker only
+  spark-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-worker-2
+    hostname: spark-worker-2
+    command: >
+      bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 --cores 4 --memory 4g &&
+      tail -f /opt/spark/logs/spark--org.apache.spark.deploy.worker*.out"
+    ports:
+      - "8082:8081"  # Worker UI (mapped to different host port)
+    depends_on:
+      - spark-master
+    volumes:
+      - ./analytics:/opt/spark-apps
+      - ./data:/opt/spark-data
+    networks:
+      - kafka-network
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - TZ=America/Los_Angeles
+
+networks:
+  kafka-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
