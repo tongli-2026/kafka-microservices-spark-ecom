@@ -249,11 +249,16 @@ class InventoryLowEvent(BaseEvent):
 class InventoryDepletedEvent(BaseEvent):
     """
     Event published when inventory is depleted.
-    Triggers: Inventory Service when stock reaches zero
-    Consumers: Notification Service (send out-of-stock alert), Analytics (stock level tracking)
+    Triggers: Inventory Service when stock reaches zero or insufficient for order
+    Consumers: Order Service (cancel order), Notification Service (send out-of-stock alert)
+    
+    Fields:
+        - order_id: ID of the order that triggered the depletion
+        - product_id: Product that ran out of stock
     """
 
     event_type: str = "inventory.depleted"
+    order_id: str  # Order Service needs this to know which order to cancel
     product_id: str
 
 

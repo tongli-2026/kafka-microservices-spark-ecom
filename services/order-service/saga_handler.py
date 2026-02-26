@@ -265,6 +265,7 @@ class SagaHandler:
         self.repo.update_order_status(event.order_id, "CANCELLED")
 
         # Create outbox event
+        # Include cancellation_source to help downstream services understand WHY it was cancelled
         order_cancelled_event = {
             "event_id": event.event_id,
             "event_type": "order.cancelled",
@@ -272,7 +273,8 @@ class SagaHandler:
             "correlation_id": event.correlation_id,
             "order_id": event.order_id,
             "user_id": event.user_id,
-            "reason": event.reason,
+            "reason": getattr(event, 'reason', "Payment processing failed"),
+            "cancellation_source": "payment_failed",  # ← Key field: tells Inventory Service TO release reserved stock
         }
 
         self.repo.add_outbox_event(
@@ -350,14 +352,16 @@ class SagaHandler:
         self.repo.update_order_status(event.order_id, "CANCELLED")
 
         # Create outbox event to notify customer of cancellation
+        # Include cancellation_source to help downstream services understand WHY it was cancelled
         order_cancelled_event = {
             "event_id": event.event_id,
             "event_type": "order.cancelled",
             "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
             "correlation_id": event.correlation_id,
             "order_id": event.order_id,
-            "user_id": event.user_id,
-            "reason": f"Out of stock: {event.product_id}",
+            "user_id": order.user_id,  # Get from order record, not from event
+            "reason": getattr(event, 'reason', f"Out of stock or insufficient stock: {event.product_id}"),
+            "cancellation_source": "inventory_depleted",  # ← Key field: tells Inventory Service NOT to release stock
         }
 
         self.repo.add_outbox_event(

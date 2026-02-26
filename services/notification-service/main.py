@@ -197,10 +197,10 @@ Kafka E-Commerce Team
 ADMIN ALERT - OUT OF STOCK
 
 Product ID: {product_id}
-Status: Depleted
+Status: Depleted or Insufficient stock
 
 Orders may have been cancelled due to unavailability.
-Please restock this product immediately.
+Please restock or re-evaluate this product immediately.
 
 Kafka E-Commerce Team
 """
@@ -216,7 +216,7 @@ Product ID: {event.product_id}
 Current Stock: {event.current_stock}
 Threshold: {event.threshold}
 
-Please reorder this product.
+Please restock or re-evaluate this product.
 
 Kafka E-Commerce Team
 """
