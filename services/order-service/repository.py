@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from uuid import uuid4
 
@@ -37,12 +38,16 @@ class OrderRepository:
         """Get order by order_id."""
         return self.db.query(Order).filter(Order.order_id == order_id).first()
 
+    def get_orders_by_user(self, user_id: str) -> list:
+        """Get all orders for a specific user."""
+        return self.db.query(Order).filter(Order.user_id == user_id).order_by(Order.created_at.desc()).all()
+
     def update_order_status(self, order_id: str, status: str) -> Optional[Order]:
         """Update order status."""
         order = self.get_order(order_id)
         if order:
             order.status = status
-            order.updated_at = datetime.utcnow()
+            order.updated_at = datetime.now(ZoneInfo("America/Los_Angeles"))
             self.db.flush()
             logger.info(f"Updated order {order_id} status to {status}")
         return order
@@ -69,7 +74,7 @@ class OrderRepository:
         event = self.db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
         if event:
             event.published = "Y"
-            event.published_at = datetime.utcnow()
+            event.published_at = datetime.now(ZoneInfo("America/Los_Angeles"))
             self.db.flush()
 
     def is_event_processed(self, event_id: str) -> bool:

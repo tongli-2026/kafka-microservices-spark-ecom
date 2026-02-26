@@ -11,6 +11,12 @@ class CartItemRequest(BaseModel):
     price: float
 
 
+class UpdateQuantityRequest(BaseModel):
+    """Request model for updating item quantity."""
+
+    quantity: int
+
+
 class CartItemResponse(BaseModel):
     """Response model for cart item."""
 

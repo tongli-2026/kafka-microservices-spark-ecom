@@ -10,14 +10,17 @@ TOPICS CREATED:
     - cart.item_removed
     - cart.checkout_initiated
     - order.created
+    - order.reservation_confirmed
     - order.confirmed
     - order.cancelled
-    - payment.processed
-    - payment.failed
     - inventory.reserved
     - inventory.low
     - inventory.depleted
-    - notification.sent
+    - payment.processed
+    - payment.failed
+    - notification.send
+    - fraud.detected
+    - dlq.events
 
 CONFIGURATION:
     - Default partitions: 3 (enables parallel processing)

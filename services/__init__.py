@@ -1,0 +1,1 @@
+#  This package contains all the services for the e-commerce platform.

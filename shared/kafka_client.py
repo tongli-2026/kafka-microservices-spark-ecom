@@ -53,6 +53,35 @@ ERROR HANDLING:
     - Automatic retries on transient failures
     - Logging of all delivery failures
     - Graceful degradation on critical errors
+
+DEAD LETTER QUEUE (DLQ) HANDLING:
+    Purpose: Prevents infinite retry loops while preserving failed messages
+    
+    Flow:
+        1. Message received from Kafka topic
+        2. Handler function processes the message
+        3. If error occurs, automatic retry with exponential backoff:
+           - Attempt 1: Wait 1 second
+           - Attempt 2: Wait 2 seconds
+           - Attempt 3: Wait 4 seconds
+        4. If all retries fail after 3 attempts:
+           - Event is published to "dlq.events" topic
+           - Original event data is preserved
+           - Failure reason is logged for investigation
+           - Event is marked as processed (prevents reprocessing)
+    
+    DLQ Event Contents:
+        - original_topic: Topic where message originally came from
+        - original_event_type: Type of event that failed
+        - error_reason: Exception message/details
+        - retry_count: Number of retry attempts made
+        - payload: Complete original event data
+    
+    Benefits:
+        - Prevents service from crashing on bad messages
+        - Allows manual intervention for failed events
+        - Enables post-mortem analysis of failures
+        - Supports eventual message recovery/replay
 """
 
 import json  # For event serialization/deserialization
@@ -97,7 +126,7 @@ class BaseKafkaProducer:
             "client.id": client_id,  # Producer identifier
             "acks": "all",  # Wait for all replicas to acknowledge
             "retries": 3,  # Retry failed sends 3 times
-            "compression.type": "snappy",  # Compress messages
+            "compression.type": "snappy",  # Compress before sending
         }
         self.producer = Producer(self.config)
 
@@ -114,7 +143,7 @@ class BaseKafkaProducer:
     def publish(self, topic: str, event: BaseEvent) -> None:
         """Publish event to Kafka topic."""
         try:
-            # Handle both BaseEvent objects and dicts
+            # Handle both BaseEvent objects and dicts for flexibility
             if isinstance(event, dict):
                 message = json.dumps(event)
                 event_type = event.get("event_type", "unknown")
@@ -131,6 +160,7 @@ class BaseKafkaProducer:
                 value=message.encode("utf-8"),
                 callback=self._delivery_report,
             )
+            # Flush to ensure message is sent before method returns (can be optimized for batch sending)
             self.producer.flush()
             logger.info(
                 f"Published event to {topic}",
@@ -169,12 +199,15 @@ class BaseKafkaConsumer:
         self.consumer = Consumer(self.config)
         self.topics = topics
         self.consumer.subscribe(topics)
+        # Set to track processed event IDs for idempotency
         self.processed_events: Set[str] = set()
+        # Initialize a producer for sending failed events to DLQ
         self.producer = BaseKafkaProducer(bootstrap_servers, client_id=f"{group_id}-dlq-producer")
 
     def consume(self, handler_fn: Callable[[BaseEvent], None], timeout: float = 1.0) -> None:
         """Consume messages from subscribed topics."""
         while True:
+            # Poll for messages with specified timeout
             msg = self.consumer.poll(timeout)
 
             if msg is None:
@@ -185,12 +218,12 @@ class BaseKafkaConsumer:
                 continue
 
             try:
-                # Deserialize message
+                # Parse JSON to get event_type and event_id for pre-processing checks
                 event_data = json.loads(msg.value().decode("utf-8"))
                 event_type = event_data.get("event_type")
+                event_id = event_data.get("event_id")
 
                 # Check for idempotency
-                event_id = event_data.get("event_id")
                 if event_id in self.processed_events:
                     logger.info(
                         f"Event {event_id} already processed, skipping",
@@ -198,9 +231,10 @@ class BaseKafkaConsumer:
                     )
                     continue
 
-                # Deserialize to appropriate event class
+                # Deserialize to appropriate event class using Pydantic validation
                 event_class = EVENT_TYPE_MAP.get(event_type, BaseEvent)
-                event = event_class(**event_data)
+                # Validate and create event instance (raises ValidationError if data is invalid)
+                event = event_class.model_validate(event_data)
 
                 # Retry logic
                 max_retries = 3
@@ -208,6 +242,7 @@ class BaseKafkaConsumer:
 
                 for attempt in range(max_retries):
                     try:
+                        # Call the handler function to process the event
                         handler_fn(event)
                         self.processed_events.add(event_id)
                         logger.info(

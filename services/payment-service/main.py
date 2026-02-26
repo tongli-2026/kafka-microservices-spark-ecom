@@ -141,22 +141,22 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize Kafka producer: {e}")
         raise
 
-    # Start consumer thread for order.created events
+    # Start consumer thread for order.reservation_confirmed events
     def payment_consumer():
-        """Consume order.created events and process payments."""
+        """Consume order.reservation_confirmed events and process payments."""
         from payment_processor import PaymentProcessor
         from repository import PaymentRepository
 
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="payment-service-group",
-            topics=["order.created"],
+            topics=["order.reservation_confirmed"],
         )
 
-        def handle_order_created(event):
-            """Handle order.created event."""
+        def handle_order_reservation_confirmed(event):
+            """Handle order.reservation_confirmed event (Amazon-style: process payment only after inventory is reserved)."""
             logger.info(
-                f"Processing payment for order {event.order_id}",
+                f"Processing payment for order {event.order_id} (inventory reserved)",
                 extra={"event_type": event.event_type, "correlation_id": event.correlation_id},
             )
 
@@ -214,7 +214,7 @@ async def lifespan(app: FastAPI):
             db.close()
 
         try:
-            consumer.consume(handle_order_created)
+            consumer.consume(handle_order_reservation_confirmed)
         except Exception as e:
             logger.error(f"Error in payment consumer: {e}")
 

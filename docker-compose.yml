@@ -3,8 +3,8 @@ services:
     image: apache/kafka:latest
     container_name: kafka-broker-1
     ports:
-      - "9092:9092"
-      - "9094:9094"
+      - "9092:9092" # internal Kafka port 9092: used for inter-broker communication and client connections within the Docker network
+      - "9094:9094" # external Kafka port 9094: used for client connections from outside the Docker network (e.g., from host machine)
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -103,6 +103,9 @@ services:
       timeout: 5s
       retries: 5
 
+  # pgAdmin is a popular web-based administration tool for managing PostgreSQL databases. 
+  # It provides a user-friendly interface to interact with the database, run queries, manage tables, and perform various administrative tasks. 
+  #In this setup, pgAdmin is configured to connect to the PostgreSQL database running in the `postgres` container, allowing you to easily manage your database through a web interface.
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin

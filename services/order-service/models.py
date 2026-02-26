@@ -17,7 +17,7 @@ class Order(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     order_id = Column(String(255), unique=True, nullable=False, index=True)
     user_id = Column(String(255), nullable=False, index=True)
-    status = Column(String(50), default="PENDING", nullable=False)  # PENDING, CONFIRMED, PAID, FULFILLED, CANCELLED
+    status = Column(String(50), default="PENDING", nullable=False)  # PENDING, RESERVATION_CONFIRMED, PAID, FULFILLED, CANCELLED
     items = Column(JSON, nullable=False)
     total_amount = Column(Float, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

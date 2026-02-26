@@ -2,11 +2,32 @@
 
 A complete event-driven e-commerce backend built with Apache Kafka, FastAPI microservices, PostgreSQL, Redis, and PySpark analytics.
 
+**Live Components**: Kafka (3 brokers), PostgreSQL, Redis, Spark (1 master + 2 workers), FastAPI microservices, pgAdmin, Mailhog, Kafka UI
+
+## Table of Contents
+
+1. [Architecture](#architecture)
+2. [Project Structure](#project-structure)
+3. [Prerequisites](#prerequisites)
+4. [Quick Start](#quick-start)
+5. [Web UI Access](#web-ui-access--setup)
+6. [Database Setup & Access](#database-setup--access)
+7. [API Endpoints](#api-endpoints)
+8. [Kafka Topics](#kafka-topics)
+9. [Event Flow](#event-flow)
+10. [Database Schema](#database-schema)
+11. [Configuration](#configuration)
+12. [Spark Cluster Details](#spark-cluster-details)
+13. [Monitoring & Development](#monitoring--development)
+14. [Troubleshooting](#troubleshooting)
+15. [Cleanup](#cleanup)
+16. [Architecture Highlights](#architecture-highlights)
+
 ## Architecture
 
 ### Microservices
 - **Cart Service** (Port 8001): Shopping cart management with Redis
-- **Order Service** (Port 8002): Order orchestration with saga pattern
+- **Order Service** (Port 8002): Order orchestration with saga pattern and background fulfillment job
 - **Payment Service** (Port 8003): Payment processing (80% success rate)
 - **Inventory Service** (Port 8004): Stock management with optimistic locking
 - **Notification Service** (Port 8005): Email notifications via Mailhog
@@ -27,6 +48,115 @@ A complete event-driven e-commerce backend built with Apache Kafka, FastAPI micr
   3. Cart abandonment (30-min stream join)
   4. Inventory velocity (1-hour windows, top 10 products)
   5. Operational metrics (topic-level monitoring)
+
+## Project Structure
+
+```
+kafka-microservices-spark-ecom/
+│
+├── 📄 Configuration Files
+│   ├── .env                          # Environment variables (local)
+│   ├── .env.example                  # Example environment template
+│   ├── docker-compose.yml            # Docker services definition
+│   ├── Dockerfile.spark              # Spark cluster Dockerfile
+│   ├── pyproject.toml                # Python project config
+│   └── setup.py                      # Setup configuration
+│
+├── 📚 Documentation
+│   ├── README.md                     # Main documentation (this file)
+│   ├── API.md                        # API endpoint documentation
+│   ├── PORTS.md                      # Port reference guide
+│   ├── DOCKER_IMAGES.md              # Docker image information
+│   └── TEST_*.md                     # Testing workflow guides
+│
+├── 🔧 Scripts
+│   ├── clean-database.sh             # Clean PostgreSQL data
+│   ├── clean-kafka.sh                # Clean Kafka topics
+│   ├── run-spark-job.sh              # Submit Spark jobs
+│   ├── generate-orders.sh            # Generate test orders
+│   ├── test-complete-workflow.sh     # Run complete workflow test
+│   └── view_carts.py                 # View Redis carts (Python)
+│
+├── 📁 services/                      # Microservices (5 services)
+│   ├── cart-service/
+│   │   ├── main.py                   # FastAPI app entry point
+│   │   ├── cart_repository.py        # Data access layer
+│   │   ├── schemas.py                # Pydantic models
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   ├── inventory-service/
+│   │   ├── main.py                   # FastAPI app entry point
+│   │   ├── inventory_repository.py   # Optimistic locking logic
+│   │   ├── schemas.py
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   ├── order-service/
+│   │   ├── main.py                   # FastAPI app entry point
+│   │   ├── order_repository.py       # Order persistence
+│   │   ├── saga_handler.py           # Saga orchestration logic
+│   │   ├── outbox_handler.py         # Outbox pattern implementation
+│   │   ├── schemas.py
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   ├── payment-service/
+│   │   ├── main.py                   # FastAPI app entry point
+│   │   ├── payment_repository.py     # Payment persistence
+│   │   ├── schemas.py
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   └── notification-service/
+│       ├── main.py                   # FastAPI app entry point
+│       ├── schemas.py
+│       ├── Dockerfile
+│       └── requirements.txt
+│
+├── 📁 analytics/                     # Spark Cluster & Jobs
+│   ├── spark_session.py              # Spark session factory
+│   ├── Dockerfile                    # Spark cluster Docker image
+│   ├── requirements.txt              # Spark dependencies
+│   │
+│   └── jobs/                         # Streaming jobs (5 jobs)
+│       ├── revenue_streaming.py      # 1-min revenue aggregation
+│       ├── fraud_detection.py        # 5-min fraud detection
+│       ├── cart_abandonment.py       # 30-min cart abandonment
+│       ├── inventory_velocity.py     # 1-hour inventory analysis
+│       └── operational_metrics.py    # Topic-level monitoring
+│
+├── 📁 shared/                        # Shared utilities
+│   ├── database.py                   # PostgreSQL client
+│   ├── events.py                     # Event models & types
+│   ├── kafka_client.py               # Kafka producer/consumer
+│   ├── logging_config.py             # Logging setup
+│   └── topic_initializer.py          # Kafka topic creation
+│
+├── 📁 data/                          # Data files (SQL, fixtures)
+│
+└── pgAdmin_queries.sql               # Pre-written SQL queries
+```
+
+### Directory Details
+
+**services/** - Microservices Architecture
+- 5 independent FastAPI services on ports 8001-8005
+- Each service has its own Docker container
+- Kafka producers/consumers for event handling
+- Database persistence layers with optimistic locking/saga patterns
+
+**analytics/** - Spark Analytics Cluster
+- 1 master + 2 worker nodes
+- 5 streaming jobs reading from Kafka topics
+- Results written to PostgreSQL analytics tables
+- Watermarking, windowing, and stateful operations
+
+**shared/** - Common Code
+- Kafka client with retry logic and DLQ support
+- PostgreSQL connection pooling
+- Event schema definitions
+- Logging and topic initialization
 
 ## Prerequisites
 
@@ -195,9 +325,119 @@ See `pgAdmin_queries.sql` for 50+ pre-written queries.
 | **Query Tool not loading** | Click on a specific table first, then go to Tools → Query Tool |
 | **Port 5050 not responding** | Restart pgAdmin: `docker restart pgadmin` |
 
-### Command-Line Database Access
+## Database Setup & Access
 
-#### PostgreSQL via psql
+### Redis (In-Memory Cache)
+
+#### What is Redis?
+
+Redis is an in-memory data store used in this project to:
+- **Store cart state**: Fast read/write for shopping carts
+- **TTL management**: Automatically expire abandoned carts after 24 hours
+- **Session management**: Cache user session data
+- **Real-time operations**: Serve cart data instantly without database queries
+
+#### Viewing Cart Data
+
+**Option 1: Python Script (Recommended)**
+
+```bash
+# 1. Navigate to the project root
+cd /Users/tong/KafkaProjects/kafka-microservices-spark-ecom
+
+# 2. Make sure virtual environment is activated
+source .venv/bin/activate
+
+# 3. Run the script to view all active carts with TTL and items
+python view_carts.py
+```
+
+Output:
+```
+✅ Found 1 active carts:
+
+👤 User: user123
+⏱️  TTL: 84134 seconds remaining
+🛒 Items: {
+  "laptop": {
+    "quantity": 2,
+    "price": 999.99
+  },
+  "smartphone": {
+    "quantity": 1,
+    "price": 599.99
+  }
+}
+```
+
+**Option 2: Redis CLI (Direct)**
+
+```bash
+# Connect to Redis
+docker exec -it redis redis-cli
+
+# View all cart keys
+KEYS "cart:*"
+
+# View specific cart
+GET cart:user123
+
+# Check remaining TTL (in seconds)
+TTL cart:user123
+
+# Useful commands:
+DBSIZE                    # Total keys in Redis
+GET cart:user123          # Get cart for user123
+DEL cart:user123          # Delete a cart
+EXPIRE cart:user123 3600  # Set TTL to 1 hour
+PERSIST cart:user123      # Remove TTL (keep forever)
+FLUSHDB                   # Clear all data (be careful!)
+MONITOR                   # Watch all operations in real-time
+INFO                      # Redis server info
+MEMORY STATS              # Memory usage
+EXIT                      # Exit Redis CLI
+```
+
+**Option 3: Real-Time Monitoring**
+
+```bash
+# Monitor all Redis operations as they happen
+docker exec -it redis redis-cli MONITOR
+
+# In another terminal, add items to cart:
+curl -X POST http://localhost:8001/cart/user123/items \
+  -H "Content-Type: application/json" \
+  -d '{"product_id": "laptop", "quantity": 1, "price": 999.99}'
+
+# You'll see in MONITOR:
+# [timestamp] [0 127.0.0.1:12345] "SET" "cart:user123" "{...}" "EX" "86400"
+```
+
+#### Cart Data Format
+
+**Key**: `cart:{user_id}` (example: `cart:user123`)
+
+**Value** (JSON):
+```json
+{
+  "product_id_1": {"quantity": 2, "price": 999.99},
+  "product_id_2": {"quantity": 1, "price": 599.99}
+}
+```
+
+**TTL**: 86400 seconds (24 hours) - resets on each update
+
+#### Troubleshooting Redis
+
+| Issue | Solution |
+|-------|----------|
+| Connection refused | Start Redis: `docker-compose up redis -d` |
+| No carts found | Add items via `/cart/add` API endpoint first |
+| TTL shows -2 | Key expired or doesn't exist |
+| TTL shows -1 | Key exists but has no expiration |
+| Memory usage high | Run `FLUSHDB` to clear all keys |
+
+### PostgreSQL via psql
 
 ```bash
 # Connect directly to database
@@ -208,19 +448,6 @@ docker-compose exec postgres psql -U postgres -d kafka_ecom
 \d orders              # Describe orders table
 SELECT * FROM orders;  # Query orders
 \q                     # Quit
-```
-
-#### Redis via redis-cli
-
-```bash
-# Connect to Redis
-docker-compose exec redis redis-cli
-
-# Useful commands:
-KEYS cart:*            # List cart keys
-GET cart:user123       # Get specific cart
-FLUSHDB                # Clear all keys
-QUIT                   # Exit
 ```
 
 ### Clean Up Database & Kafka
@@ -299,6 +526,12 @@ curl http://localhost:8004/products/PROD-001
 ```bash
 # Get order details
 curl http://localhost:8002/orders/ORD-ABC123
+
+# Get all orders for a user
+curl http://localhost:8002/orders/user/user123
+
+# Health check
+curl http://localhost:8002/health
 ```
 
 ### Payment Service
@@ -426,9 +659,9 @@ CREATE TABLE operational_metrics (
 ### Complete Event Flow Diagram
 
 ```
-                         ┌─────────────────────────────────────────┐
-                         │      SUCCESSFUL PURCHASE FLOW           │
-                         └─────────────────────────────────────────┘
+                    ┌───────────────────────────────────────────────────────────┐
+                    │    Successful Purchase Flow (Inventory before Payment)    │
+                    └───────────────────────────────────────────────────────────┘
 
 User adds items to cart
            │
@@ -438,40 +671,64 @@ User checks out
            │
            ├─→ [cart.checkout_initiated] ──→ Order Service
            │
-           ├─→ [order.created] ──→ Payment Service
-           │                     (80% success rate)
-           │
-           ├─→ [payment.processed ✓] ──→ Order Service
-           │                            (marks PAID)
-           │
-           ├─→ [order.confirmed] ──→ Inventory Service
-           │                        (reserves stock)
+           ├─→ [order.created] ──→ Inventory Service
+           │                       (tries to reserve stock)
            │
            ├─→ [inventory.reserved ✓] ──→ Order Service
-           │                             (marks FULFILLED)
            │
-           └─→ [notification.send] ──→ Notification Service
-                                       (sends confirmation email ✓)
+           ├─→ [order.reservation_confirmed] ──→ Payment Service
+           │                                     (only if stock reserved)
+           │
+           ├─→ [payment.processed ✓] ──→ Order Service
+           │
+           ├─→ [order.confirmed] ──→ Notification Service
+           │
+           ├─→ [notification.send] ──→ Customer Email ✓
+           │
+           └─→ [order.fulfilled] ──→ Order Service, Notification Service
+                   (async fulfillment/shipping)
+                   │
+                   └─→ [notification.send] ──→ Shipment Email with Tracking ✓
+
+                    ┌──────────────────────────────────────────────┐
+                    │   Failed Flow When Stock is Out              │
+                    │   (Prevents Customer Being Charged!)         │
+                    └──────────────────────────────────────────────┘
+
+[order.created] ──→ Inventory Service
+           │        (tries to reserve stock)
+           │
+           ├─→ [inventory.depleted ✗]
+           │    "Last item sold to another customer"
+           │
+           ├─→ [order.cancelled] ──→ Notification Service
+           │                         (no payment processed!)
+           │
+           └─→ Customer Email: "Sorry, out of stock"
+                (NO CHARGE ✓)
 
 
-                         ┌─────────────────────────────────────────┐
-                         │      FAILED PAYMENT FLOW                │
-                         └─────────────────────────────────────────┘
+                    ┌──────────────────────────────────────────────────┐
+                    │   Failed Flow due to Payment Failure             │
+                    │   (Inventory Released Automatically)             │
+                    └──────────────────────────────────────────────────┘
 
-[order.created] ──→ Payment Service
-                    (20% failure rate)
+[order.reservation_confirmed] ──→ Payment Service
+           │                      (payment processing)
            │
            ├─→ [payment.failed ✗]
+           │    "Card declined"
            │
            ├─→ [order.cancelled] ──→ Inventory Service
+           │                         (release reserved stock)
            │
-           ├─→ [inventory.released]
-           │
-           └─→ [notification.send] ──→ Notification Service
-                                       (sends failure email ✗)
+           └─→ Notification Service sends failure email
+                (Stock back in inventory ✓)
 ```
 
-### Successful Purchase Flow (Step by Step)
+### Successful Purchase Flow (Step by Step) - PRODUCTION-STYLE ✅
+
+**Work Flow:** Inventory reserved BEFORE payment (prevents charging for out-of-stock items)
 
 1. **User adds items to cart** 
    - Event: `cart.item_added`
@@ -484,55 +741,138 @@ User checks out
    - Consumer: Order Service
 
 3. **Order Service creates order** 
-   - Event: `order.created`
+   - Event: `order.created` (Status: PENDING)
    - Producer: Order Service
-   - Consumer: Payment Service
+   - Consumer: Inventory Service (RESERVES STOCK FIRST - PRODUCTION STYLE)
 
-4. **Payment Service processes payment** 
-   - Event: `payment.processed` (80% success)
-   - Producer: Payment Service
-   - Consumer: Order Service (updates order to PAID)
-
-5. **Order confirmed** 
-   - Event: `order.confirmed`
-   - Producer: Order Service
-   - Consumer: Inventory Service
-
-6. **Inventory reserves stock** 
-   - Event: `inventory.reserved`
+4. **Inventory Service reserves stock** 
+   - If stock available → Event: `inventory.reserved`
    - Producer: Inventory Service
-   - Consumer: Order Service (marks FULFILLED)
+   - Consumer: Order Service
 
-7. **Notification sent** 
-   - Event: `notification.send`
+5. **Order Service confirms reservation** 
+   - Event: `order.reservation_confirmed` (Status: RESERVATION_CONFIRMED)
+   - Producer: Order Service
+   - Consumer: Payment Service (NOW SAFE TO PROCESS PAYMENT)
+
+6. **Payment Service processes payment** 
+   - Event: `payment.processed` (80% success rate)
+   - Producer: Payment Service
+   - Consumer: Order Service
+
+7. **Order Service finalizes** 
+   - If payment.processed → Status: PAID, publishes `order.confirmed`
    - Producer: Order Service
    - Consumer: Notification Service
 
-8. **Email delivered**
+8. **Notification Service processes event** 
+   - Event consumed: `order.confirmed`
+   - Publishes: `notification.send` event
+   - Producer: Notification Service
+   - Consumer: Mailhog (Email Service)
+
+9. **Email delivered**
    - Order confirmation email sent via Mailhog
 
-### Failed Payment Flow (Step by Step)
+10. **Order Service fulfillment job publishes** 
+    - Event: `order.fulfilled` (Order shipped with tracking number)
+    - Producer: Fulfillment Job (Order Service background thread)
+    - Consumer: Order Service, Notification Service
+
+11. **Notification Service sends shipment email** 
+    - Event consumed: `order.fulfilled`
+    - Includes: Tracking number, estimated delivery date
+    - Publishes: `notification.send` event
+    - Producer: Notification Service
+    - Consumer: Mailhog (Email Service)
+
+12. **Shipment email delivered**
+    - Order shipment confirmation with tracking number sent to customer
+
+### Failed Purchase Flow (Out of Stock)
+
+1. **Order Service creates order** 
+   - Event: `order.created` (Status: PENDING)
+   - Producer: Order Service
+   - Consumer: Inventory Service
+
+2. **Inventory Service checks stock** 
+   - Event: `inventory.depleted` (Out of stock - last item sold to another customer)
+   - Producer: Inventory Service
+   - Consumer: Order Service, Notification Service
+
+3. **Order Service cancels order** 
+   - Event: `order.cancelled` (Status: PENDING → CANCELLED)
+   - **IMPORTANT: NO PAYMENT PROCESSED**
+   - Producer: Order Service
+   - Consumer: Inventory Service, Notification Service
+
+4. **Notification Service sends cancellation email** 
+   - Event: `order.cancelled` (consumed)
+   - Publishes: `notification.send` event
+   - Producer: Notification Service
+   - Consumer: Mailhog (Email Service)
+   - Result: Customer receives "Sorry, out of stock" email
+   - **CUSTOMER NOT CHARGED** ✓
+
+### Failed Purchase Flow (Payment Failure)
 
 1. **Payment processing fails** 
    - Event: `payment.failed` (20% failure rate)
    - Producer: Payment Service
    - Consumer: Order Service
+   - **CUSTOMER NOT CHARGED** ✓
 
 2. **Order cancelled** 
    - Event: `order.cancelled`
    - Producer: Order Service
-   - Consumer: Inventory Service
+   - Consumer: Inventory Service, Notification Service
 
-3. **Stock released** 
-   - Event: `inventory.released`
-   - Producer: Inventory Service
-   - Consumer: (cleanup)
+3. **Stock released automatically** 
+   - Inventory Service consumes `order.cancelled`
+   - Reserved stock is incremented back to inventory
+   - Stock reservation record is deleted from database
+   - (implicit operation, no separate event published)
 
-4. **Failure notification sent** 
-   - Event: `notification.send`
-   - Producer: Order Service
-   - Consumer: Notification Service (sends failure email)
+4. **Notification Service sends failure email** 
+   - Event: `order.cancelled` (consumed)
+   - Producer: Notification Service (publishes `notification.send`)
+   - Consumer: Mailhog (Email Service)
+   - Result: Payment failure/cancellation email sent to customer
 
+### Order Status Lifecycle
+
+Orders progress through the following states:
+
+```
+PENDING (initial state - order just created)
+  │
+  ├─→ RESERVATION_CONFIRMED (inventory reserved successfully)
+  │   │
+  │   ├─→ PAID (payment processed successfully)
+  │   │   │
+  │   │   └─→ FULFILLED (order shipped/delivered via fulfillment job)
+  │   │
+  │   └─→ CANCELLED (payment failed - inventory released)
+  │
+  └─→ CANCELLED (inventory out of stock - NO PAYMENT CHARGED)
+```
+
+**Status Descriptions**:
+
+| Status | Trigger Event | Meaning | Customer Impact |
+|--------|---------------|---------|-----------------|
+| **PENDING** | `cart.checkout_initiated` | Order being processed | Order awaiting inventory check |
+| **RESERVATION_CONFIRMED** | `inventory.reserved` | Stock reserved | Order confirmed, awaiting payment |
+| **PAID** | `payment.processed` | Payment successful | Charge applied to card ✓ |
+| **FULFILLED** | `order.fulfilled` | Order shipped/delivered | Order completed, tracking available |
+| **CANCELLED** | `inventory.depleted` OR `payment.failed` | Order cancelled | No charge |
+
+**Key Points**:
+- ✓ Customer NOT charged if inventory is out of stock (CANCELLED via `inventory.depleted`) or payment is failed
+- ✓ Customer ONLY charged if inventory reserved → stock is guaranteed
+- ✓ FULFILLED status indicates order is ready/shipped (set by background fulfillment job)
+- ✓ Complete successful order lifecycle: PENDING → RESERVATION_CONFIRMED → PAID → FULFILLED
 
 ## Kafka Topics
 
@@ -544,35 +884,37 @@ All topics are created with:
 ### Kafka Topic Topology
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    KAFKA TOPICS (14 Total)                      │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  CART EVENTS:                                                   │
-│  ├─ cart.item_added ────────────────→ Cart Service              │
-│  ├─ cart.item_removed ──────────────→ Cart Service              │
-│  └─ cart.checkout_initiated ───────→ Order Service              │
-│                                                                 │
-│  ORDER EVENTS:                                                  │
-│  ├─ order.created ──────────────────→ Payment Service           │
-│  ├─ order.confirmed ────────────────→ Inventory Service         │
-│  └─ order.cancelled ───────────────→ Inventory Service          │
-│                                                                 │
-│  PAYMENT EVENTS:                                                │
-│  ├─ payment.processed ✓ ───────────→ Order Service              │
-│  └─ payment.failed ✗ ──────────────→ Order Service              │
-│                                                                 │
-│  INVENTORY EVENTS:                                              │
-│  ├─ inventory.reserved ✓ ──────────→ Order Service              │
-│  ├─ inventory.low ──────────────────→ Notification Service      │
-│  └─ inventory.depleted ────────────→ Notification Service       │
-│                                                                 │
-│  SYSTEM EVENTS:                                                 │
-│  ├─ notification.send ──────────────→ Notification Service      │
-│  ├─ fraud.detected ─────────────────→ Fraud Detection (Spark)   │
-│  └─ dlq.events ─────────────────────→ Dead Letter Queue         │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    KAFKA TOPICS (16 Total)                                    │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  CART EVENTS:                                                                 │
+│  ├─ cart.item_added ────────────────→ Cart Service                            │
+│  ├─ cart.item_removed ──────────────→ Cart Service                            │
+│  └─ cart.checkout_initiated ───────→ Order Service                            │
+│                                                                               │
+│  ORDER EVENTS:                                                                │
+│  ├─ order.created ──────────────────→ Inventory Service                       │
+│  ├─ order.reservation_confirmed ───→ Payment Service                          │
+│  ├─ order.confirmed ────────────────→ Notification Service                    │
+│  ├─ order.fulfilled ───────────────→ Order Service, Notification Service      │
+│  └─ order.cancelled ───────────────→ Inventory Service, Notification Service  │
+│                                                                               │
+│  INVENTORY EVENTS:                                                            │
+│  ├─ inventory.reserved ✓ ──────────→ Order Service                            │
+│  ├─ inventory.low ──────────────────→ Notification Service                    │
+│  └─ inventory.depleted ────────────→ Notification Service                     │
+│                                                                               │
+│  PAYMENT EVENTS:                                                              │
+│  ├─ payment.processed ✓ ───────────→ Order Service                            │
+│  └─ payment.failed ✗ ──────────────→ Order Service                            │
+│                                                                               │
+│  SYSTEM EVENTS:                                                               │
+│  ├─ notification.send ──────────────→ Mailhog (Email Service)                 │
+│  ├─ fraud.detected ─────────────────→ Fraud Detection (Spark)                 │
+│  └─ dlq.events ─────────────────────→ Dead Letter Queue                       │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
 
 Legend:
   ✓ = Success path
@@ -585,17 +927,19 @@ Legend:
 | Topic | Purpose | Producer | Consumers |
 |-------|---------|----------|-----------|
 | `cart.item_added` | Item added to cart | Cart Service | Cart Service (Redis) |
-| `cart.item_removed` | Item removed from cart | Cart Service | Cart Service |
+| `cart.item_removed` | Item removed from cart | Cart Service | Cart Service (Redis) |
 | `cart.checkout_initiated` | User initiates checkout | Cart Service | Order Service |
-| `order.created` | New order created | Order Service | Payment Service |
-| `order.confirmed` | Order payment confirmed | Order Service | Inventory Service |
-| `order.cancelled` | Order cancelled | Order Service | Inventory Service |
+| `order.created` | New order created, triggers inventory reservation | Order Service | Inventory Service |
+| `order.reservation_confirmed` | Stock reserved, ready for payment | Order Service | Payment Service |
+| `order.confirmed` | Order confirmed (payment successful + stock reserved) | Order Service | Notification Service |
+| `order.fulfilled` | Order fulfilled (shipped/delivered) | Fulfillment Job | Order Service, Notification Service |
+| `order.cancelled` | Order cancelled (payment failed or out of stock) | Order Service | Inventory Service, Notification Service |
+| `inventory.reserved` | Stock reserved ✓ | Inventory Service | Order Service |
+| `inventory.depleted` | Out of stock ✗ (cancel order, no payment) | Inventory Service | Order Service, Notification Service |
+| `inventory.low` | Low stock alert | Inventory Service | Notification Service |
 | `payment.processed` | Payment successful ✓ | Payment Service | Order Service |
 | `payment.failed` | Payment failed ✗ | Payment Service | Order Service |
-| `inventory.reserved` | Stock reserved ✓ | Inventory Service | Order Service |
-| `inventory.low` | Low stock alert | Inventory Service | Notification Service |
-| `inventory.depleted` | Out of stock | Inventory Service | Notification Service |
-| `notification.send` | Send email | Order Service | Notification Service |
+| `notification.send` | Send email notification | Notification Service | Mailhog (Email Service) |
 | `fraud.detected` | Fraud detection alert | Fraud Detection (Spark) | Monitoring |
 | `dlq.events` | Failed message processing | Any Service | Dead Letter Handler |
 
@@ -663,29 +1007,6 @@ docker-compose exec kafka-broker-1 \
   --from-beginning
 ```
 
-#### Real-World Example
-
-**Scenario**: Payment service receives a corrupted payment event
-
-```
-1. Payment Service receives malformed JSON
-   ↓
-2. Try to parse → FAIL (Attempt 1)
-   Wait 1 second
-   ↓
-3. Retry parse → FAIL (Attempt 2)
-   Wait 2 seconds
-   ↓
-4. Retry parse → FAIL (Attempt 3)
-   ↓
-5. Send to dlq.events topic ✗
-   
-Order Service sees order.created but no payment processed
-→ Order stuck in PENDING state
-→ DLQ message shows why payment failed
-→ Operations team manually reviews and fixes
-```
-
 #### Handling DLQ Messages
 
 | Option | Process | Use Case |
@@ -709,19 +1030,27 @@ Customer checks out
   ↓
 Order Service creates → order.created published
   ↓
-Payment Service fails to connect (network error)
+Inventory Service receives order.created
   ↓
-Retry 3 times with backoff (1s, 2s delays)
+Try to reserve stock from database → FAIL (Attempt 1)
+  ↓
+Retry after 1 second → FAIL (Attempt 2)
+  ↓
+Retry after 2 seconds → FAIL (Attempt 3)
   ↓
 All retries fail → Message sent to dlq.events
   ↓
-Operations team sees alert
+Payment Service never receives order.reservation_confirmed
   ↓
-Fix payment gateway connection
+Order stuck in PENDING state (never progresses to payment) ✗
+  ↓
+Operations team sees alert, fixes database connection
   ↓
 Replay message from DLQ
   ↓
-Order completes successfully ✓
+Inventory reserved → order.reservation_confirmed → payment processes
+  ↓
+Order fulfills successfully ✓
 ```
 
 ## Configuration
@@ -754,9 +1083,20 @@ ORDER_SERVICE_PORT=8002
 PAYMENT_SERVICE_PORT=8003
 INVENTORY_SERVICE_PORT=8004
 NOTIFICATION_SERVICE_PORT=8005
+
+# Fulfillment Job (Order Service Background Thread)
+POLL_INTERVAL_SECONDS=10           # How often to check for PAID orders
+FULFILLMENT_DELAY_SECONDS=5        # Delay before marking order fulfilled (simulates shipping time)
 ```
 
-## Development
+**Fulfillment Job Details**:
+- Runs automatically as a background thread in Order Service
+- Periodically queries database for PAID orders
+- Publishes `order.fulfilled` events to Kafka
+- Configurable via `POLL_INTERVAL_SECONDS` and `FULFILLMENT_DELAY_SECONDS`
+- No separate deployment needed - integrated into Order Service
+
+## Monitoring & Development
 
 ### Running Single Service
 
@@ -877,6 +1217,22 @@ docker-compose logs -f cart-service
 ```
 
 ## Architecture Highlights
+
+### Production-Style Inventory-First Flow
+Order Service implements the production-standard e-commerce pattern:
+- **Reserve inventory BEFORE payment**: Prevents charging for out-of-stock items
+- **Automatic order cancellation**: If inventory unavailable, no customer charge
+- **Complete order lifecycle**: PENDING → RESERVATION_CONFIRMED → PAID → FULFILLED → CANCELLED
+- **All 6 event handlers**: Cart, Inventory (reserved/depleted), Payment (success/failure), Fulfillment
+- **Key advantage**: No refunds needed, better customer experience
+
+### Background Fulfillment Job
+Automatic order fulfillment as integrated background thread:
+- Runs as daemon thread in Order Service (no separate deployment)
+- Polls database every 10 seconds for PAID orders
+- Publishes `order.fulfilled` events with tracking numbers
+- Configurable delays via environment variables
+- Simulates realistic shipping delays for testing
 
 ### Saga Orchestration
 Order Service implements the Outbox Pattern + Saga Choreography:

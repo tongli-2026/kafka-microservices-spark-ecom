@@ -7,6 +7,7 @@ PURPOSE:
 
 NOTIFICATION TYPES:
     - Order confirmations (to users)
+    - Order fulfillment/shipment with tracking numbers (to users)
     - Order cancellations (to users)
     - Payment receipts (to users)
     - Low stock alerts (to admins)
@@ -25,6 +26,7 @@ API ENDPOINTS:
 
 KAFKA EVENTS CONSUMED:
     - order.confirmed: Send order confirmation email
+    - order.fulfilled: Send shipment email with tracking number
     - order.cancelled: Send cancellation email
     - payment.processed: Send payment receipt
     - inventory.low: Alert admins about low stock
@@ -104,7 +106,7 @@ async def lifespan(app: FastAPI):
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="notification-service-group",
-            topics=["order.confirmed", "payment.failed", "inventory.low"],
+            topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.depleted", "payment.failed", "inventory.low"],
         )
 
         email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
@@ -145,6 +147,64 @@ Best regards,
 Kafka E-Commerce Team
 """
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+
+            elif event.event_type == "order.fulfilled":
+                # Send order fulfillment/shipment email with tracking number
+                subject = f"Your Order is On the Way! Order #{event.order_id}"
+                tracking_number = getattr(event, 'tracking_number', 'N/A')
+                body = f"""
+Dear Customer,
+
+Great news! Your order has been shipped and is on the way to you!
+
+Order ID: {event.order_id}
+Tracking Number: {tracking_number}
+Estimated Delivery: 3-5 business days
+
+You can track your package using the tracking number above.
+
+Thank you for shopping with us!
+
+Best regards,
+Kafka E-Commerce Team
+"""
+                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+
+            elif event.event_type == "order.cancelled":
+                # Send order cancellation email
+                subject = f"Order Cancelled #{event.order_id}"
+                reason = getattr(event, 'reason', 'Unknown reason')
+                body = f"""
+Dear Customer,
+
+Your order has been cancelled.
+
+Order ID: {event.order_id}
+Reason: {reason}
+
+If you have any questions, please contact our support team.
+
+Best regards,
+Kafka E-Commerce Team
+"""
+                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+
+            elif event.event_type == "inventory.depleted":
+                # Send out-of-stock alert to admin
+                subject = f"Out of Stock Alert: Product #{event.product_id}"
+                product_id = getattr(event, 'product_id', 'Unknown')
+                body = f"""
+ADMIN ALERT - OUT OF STOCK
+
+Product ID: {product_id}
+Status: Depleted
+
+Orders may have been cancelled due to unavailability.
+Please restock this product immediately.
+
+Kafka E-Commerce Team
+"""
+                email_sender.send_email(settings.admin_email, subject, body)
 
             elif event.event_type == "inventory.low":
                 # Send low stock alert to admin
