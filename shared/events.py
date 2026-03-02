@@ -192,12 +192,17 @@ class OrderCancelledEvent(BaseEvent):
     Event published when an order is cancelled.
     Triggers: Order Service when user cancels order or payment fails
     Consumers: Inventory Service (release inventory), Notification Service (send cancellation email)
+    
+    cancellation_source: Indicates WHY the order was cancelled
+        - "inventory_depleted": Cancelled due to insufficient stock (no stock to release)
+        - "payment_failed": Cancelled due to payment failure (release reserved stock)
     """
 
     event_type: str = "order.cancelled"
     order_id: str
     user_id: str
     reason: str
+    cancellation_source: str = None  # "inventory_depleted" or "payment_failed"
 
 
 class OrderFulfilledEvent(BaseEvent):

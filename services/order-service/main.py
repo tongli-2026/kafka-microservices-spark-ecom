@@ -54,16 +54,25 @@ KAFKA EVENTS:
     PUBLISHED (via Outbox Pattern):
         - order.created: New order created, triggers inventory reservation
         - order.reservation_confirmed: Stock reserved, triggers payment processing
-        - order.confirmed: Payment successful, order confirmed
-        - order.cancelled: Order cancelled (payment failed or out of stock)
-        - order.fulfilled: Publishes when order is fulfilled (background job)
+        - order.confirmed: Payment successful, order confirmed, triggers notification
+        - order.cancelled: Order cancelled (payment failed or out of stock), triggers inventory release and cancellation notification
+        - order.fulfilled: Publishes when order is fulfilled (background job), triggers shipment notification
 
 DATABASE:
     - PostgreSQL table: orders
-      Columns: order_id, user_id, status (PENDING/RESERVATION_CONFIRMED/PAID/FULFILLED/CANCELLED), 
-               total_amount, items, created_at, updated_at
+      Columns: id (UUID PK), order_id (unique indexed), user_id (indexed), status, items (JSON), 
+               total_amount, created_at, updated_at
+      Status Values: PENDING → RESERVATION_CONFIRMED → PAID → FULFILLED (or CANCELLED at any stage)
+    
     - PostgreSQL table: outbox_events (Outbox Pattern for reliable event publishing)
-      Columns: id, aggregate_id, event_type, payload, created_at, published_at
+      Columns: id (UUID PK), order_id (indexed), event_type, event_data (TEXT/JSON), 
+               published (Y/N flag), created_at, published_at (NULL until published)
+      Purpose: Guarantees reliable event publishing - events stored before Kafka publish, 
+               OutboxPublisher polls every 2 seconds and retries if service crashes
+    
+    - PostgreSQL table: processed_events (Idempotency tracking)
+      Columns: id (UUID PK), event_id (unique indexed), event_type, processed_at
+      Purpose: Prevents duplicate processing of the same event (saga handlers are idempotent)
 
 PATTERN: Outbox Pattern + Saga Choreography
     - Events stored in database BEFORE publishing to Kafka
@@ -183,7 +192,7 @@ def fulfillment_job_worker(producer: BaseKafkaProducer, poll_interval_seconds: i
                         event_data = {
                             "event_id": event_id,
                             "event_type": "order.fulfilled",
-                            "correlation_id": order.order_id,
+                            "correlation_id": order.correlation_id,  # Use the original saga correlation_id from order
                             "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
                             "order_id": order.order_id,
                             "user_id": order.user_id,
@@ -266,7 +275,7 @@ async def lifespan(app: FastAPI):
 
         def handle_event(event):
             """Handle incoming event based on type."""
-            saga = SagaHandler(db_session, producer)
+            saga = SagaHandler(db_session)
 
             if event.event_type == "cart.checkout_initiated":
                 saga.handle_cart_checkout_initiated(event)
@@ -286,6 +295,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error in order consumer: {e}")
 
+    # Start consumer thread for order events
     consumer_thread = threading.Thread(target=order_event_consumer, daemon=True)
     consumer_thread.start()
     logger.info("Order consumer thread started")
@@ -315,6 +325,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Order Service", version="1.0.0", lifespan=lifespan)
 
 
+# API Endpoints
+# Health check endpoint
 @app.get("/health")
 async def health():
     """Health check endpoint."""
@@ -325,6 +337,7 @@ async def health():
     }
 
 
+# Get order details by order_id
 @app.get("/orders/{order_id}")
 async def get_order(order_id: str):
     """Get order details."""
@@ -345,6 +358,7 @@ async def get_order(order_id: str):
             "items": order.items,
             "total_amount": order.total_amount,
             "created_at": order.created_at.isoformat(),
+            "updated_at": order.updated_at.isoformat(),
         }
     except Exception as e:
         logger.error(f"Error getting order: {e}")
@@ -353,6 +367,7 @@ async def get_order(order_id: str):
         db.close()
 
 
+# Get all orders for a specific user
 @app.get("/orders/user/{user_id}")
 async def get_user_orders(user_id: str):
     """Get all orders for a specific user."""
@@ -363,6 +378,7 @@ async def get_user_orders(user_id: str):
         repo = OrderRepository(db)
         orders = repo.get_orders_by_user(user_id)
 
+        # If no orders found, return empty list with total_orders = 0 instead of 404
         if not orders:
             return {
                 "user_id": user_id,

@@ -19,19 +19,20 @@ class OrderRepository:
         """Initialize with database session."""
         self.db = db
 
-    def create_order(self, user_id: str, items: list, total_amount: float) -> Order:
+    def create_order(self, user_id: str, items: list, total_amount: float, correlation_id: str) -> Order:
         """Create a new order."""
         order_id = f"ORD-{uuid4().hex[:12].upper()}"
         order = Order(
             order_id=order_id,
             user_id=user_id,
+            correlation_id=correlation_id,  # Store correlation_id for saga tracing
             items=items,
             total_amount=total_amount,
             status="PENDING",
         )
         self.db.add(order)
         self.db.flush()
-        logger.info(f"Created order {order_id} for user {user_id}")
+        logger.info(f"Created order {order_id} for user {user_id} (correlation_id: {correlation_id})")
         return order
 
     def get_order(self, order_id: str) -> Optional[Order]:

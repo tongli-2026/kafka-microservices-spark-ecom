@@ -13,53 +13,61 @@ SAGA PATTERN OVERVIEW:
 
 PRODUCTION-STYLE ORDER FLOW (Inventory-First):
     ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 1: User adds items to cart and checks out                  │
-    │  Cart Service publishes: cart.checkout_initiated                 │
+    │  Step 1: User adds items to cart and checks out                 │
+    │  Cart Service publishes: cart.checkout_initiated                │ 
     └─────────────────────────────────────────────────────────────────┘
                             ↓
     ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 2: Order Service receives checkout event                   │
-    │  - Create order in PENDING status                                │
-    │  - Publish order.created event (via Outbox Pattern)              │
-    │  Method: handle_cart_checkout_initiated()                        │
+    │  Step 2: Order Service receives checkout event                  │
+    │  - Create order in PENDING status                               │
+    │  - Publish order.created event (via Outbox Pattern)             │
+    │  Method: handle_cart_checkout_initiated()                       │
     └─────────────────────────────────────────────────────────────────┘
                             ↓
     ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 3: Inventory Service receives order.created                │
-    │  - Check stock availability                                      │
-    │  - Reserve inventory if available                                │
-    │  - Publish inventory.reserved or inventory.depleted              │
+    │  Step 3: Inventory Service receives order.created               │
+    │  - Check stock availability                                     │
+    │  - Reserve inventory if available                               │
+    │  - Publish inventory.reserved or inventory.depleted             │
     └─────────────────────────────────────────────────────────────────┘
-                            ↓
-    ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 4: Order Service receives inventory.reserved               │
-    │  ⭐ KEY POINT: This is BEFORE payment                            │
-    │  - Update order status to RESERVATION_CONFIRMED                  │
-    │  - Publish order.reservation_confirmed event                     │
-    │  Method: handle_inventory_reserved()                             │
-    │  ✓ NO CHARGE if inventory unavailable (inventory.depleted path)  │
-    └─────────────────────────────────────────────────────────────────┘
-                            ↓
-    ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 5: Payment Service receives order.reservation_confirmed    │
-    │  - Process payment with confirmed order amount                   │
-    │  - Publish payment.processed or payment.failed                   │
-    └─────────────────────────────────────────────────────────────────┘
-                            ↓
-    ┌─────────────────────────────────────────────────────────────────┐
-    │  Step 6a: If payment successful (payment.processed):             │
-    │  - Update order status to PAID                                   │
-    │  - Publish order.confirmed event                                 │
-    │  Method: handle_payment_processed()                              │
-    │  ✓ Customer charged + inventory reserved = order fulfilled       │
-    │                                                                   │
-    │  Step 6b: If payment failed (payment.failed):                    │
-    │  - Update order status to CANCELLED                              │
-    │  - Publish order.cancelled event                                 │
-    │  - Inventory Service will auto-release reserved stock            │
-    │  Method: handle_payment_failed()                                 │
-    │  ✓ NO CHARGE + inventory released = no refund needed             │
-    └─────────────────────────────────────────────────────────────────┘
+                    ├─ IF STOCK AVAILABLE: inventory.reserved ─────┐
+                    │                                              │
+                    └─ IF STOCK IS INSUFFICIENT or DEPLETED: ──┐   │
+                                                               │   │
+        ┌──────────────────────────────────────────────────────┘   └─┐
+        ↓                                                            ↓
+    ┌─────────────────────────────────────────────────────────┐    ┌─────────────────────────────────────────────────────┐
+    │  Step 4a: Order CANCELLED (insufficient stock)          │    │  Step 4b: Order Service receives inventory.reserved │
+    │  - Receive inventory.depleted event                     │    │  - Update order status to RESERVATION_CONFIRMED     │
+    │  - Update order status to CANCELLED                     │    │  - Publish order.reservation_confirmed event        │
+    │  - Publish order.cancelled event                        │    │  - Proceed to payment processing                    │
+    │  - NO PAYMENT CHARGED ✓                                 │    │                                                     │
+    │  - NO STOCK RELEASE (never reserved)                    │    │  Method: handle_inventory_reserved()                │
+    │  Method: handle_inventory_depleted()                    │    │  ⭐ KEY POINT: This is BEFORE payment               │
+    │  ⭐ Inventory-First Advantage: No refunds needed        │    │  ✓ Guarantees inventory availability for payment    │
+    └─────────────────────────────────────────────────────────┘    └─────────────────────────────────────────────────────┘
+                                                                                         ↓
+                                                                    ┌─────────────────────────────────────────────────────┐
+                                                                    │  Step 5: Payment Service receives order.            │
+                                                                    │          reservation_confirmed                      │
+                                                                    │  - Process payment with confirmed order amount      │
+                                                                    │  - Publish payment.processed or payment.failed      │
+                                                                    └─────────────────────────────────────────────────────┘
+                                                                            ├─ IF PAYMENT SUCCEEDS ─────┐
+                                                                            │                           │
+                                                                            └─ IF PAYMENT FAILS ────┐   │
+                                                                                                    │   │
+                                                    ┌───────────────────────────────────────────────┘   │
+                                                    ↓                                                   ↓
+                    ┌─────────────────────────────────────────────────────┐    ┌─────────────────────────────────────────────────────┐
+                    │  Step 6a: Order CANCELLED (payment failed)          │    │  Step 6b: Order PAID (payment successful)           │
+                    │  - Receive payment.failed event                     │    │  - Receive payment.processed event                  │
+                    │  - Update order status to CANCELLED                 │    │  - Update order status to PAID                      │
+                    │  - Publish order.cancelled event                    │    │  - Publish order.confirmed event                    │
+                    │  Method: handle_payment_failed()                    │    │  Method: handle_payment_processed()                 │
+                    │  ✓ NO CHARGE + inventory released = no refund       │    │  ✓ Customer charged                                 │
+                    │                                                     │    │  ✓ Inventory reserved + Payment successful = PAID   │
+                    └─────────────────────────────────────────────────────┘    └─────────────────────────────────────────────────────┘
 
 KEY ADVANTAGES vs PAYMENT-FIRST FLOW:
     ✓ Inventory checked BEFORE charging customer
@@ -107,6 +115,15 @@ EVENT HANDLERS (SagaHandler class):
        - This is the CRITICAL POINT where we confirm inventory before payment
        - Marks event processed to ensure idempotency
 
+    2b. handle_inventory_depleted(event) ⭐ INVENTORY-FIRST ADVANTAGE
+       - Input: inventory.depleted from Inventory Service
+       - Indicates insufficient stock to fulfill order
+       - Updates order status to CANCELLED (NO PAYMENT PROCESSED)
+       - Publishes order.cancelled event with cancellation_source="inventory_depleted"
+       - Marks event processed to ensure idempotency
+       - KEY: Stock was NEVER reserved, so NO stock release needed
+       - ✓ No refunds needed (customer never charged in the first place)
+
     3. handle_payment_processed(event)
        - Input: payment.processed from Payment Service
        - Updates order status to PAID
@@ -116,9 +133,9 @@ EVENT HANDLERS (SagaHandler class):
     4. handle_payment_failed(event)
        - Input: payment.failed from Payment Service
        - Updates order status to CANCELLED
-       - Publishes order.cancelled event
+       - Publishes order.cancelled event with cancellation_source="payment_failed"
        - Marks event processed to ensure idempotency
-       - Inventory Service receives order.cancelled and auto-releases stock
+       - Inventory Service receives order.cancelled and auto-releases reserved stock
 
 OUTBOX PUBLISHER (OutboxPublisher class):
     Background thread that ensures reliable event publishing:
@@ -161,7 +178,6 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from models import OutboxEvent
 from repository import OrderRepository
 
 logger = logging.getLogger(__name__)
@@ -170,14 +186,14 @@ logger = logging.getLogger(__name__)
 class SagaHandler:
     """Handles saga orchestration for orders."""
 
-    def __init__(self, db_session: Session, producer):
+    def __init__(self, db_session: Session):
         """Initialize saga handler."""
         self.db = db_session
-        self.producer = producer
         self.repo = OrderRepository(db_session)
 
     def handle_cart_checkout_initiated(self, event) -> None:
         """Handle cart.checkout_initiated event - creates order."""
+        # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
             return
@@ -188,6 +204,7 @@ class SagaHandler:
             user_id=event.user_id,
             items=items,
             total_amount=event.total_amount,
+            correlation_id=event.correlation_id,  # Store correlation_id for saga tracing
         )
 
         # Create and add outbox event
@@ -215,86 +232,14 @@ class SagaHandler:
         # Commit transaction
         self.db.commit()
         logger.info(f"Order saga started for order {order.order_id}")
-
-    def handle_payment_processed(self, event) -> None:
-        """Handle payment.processed event - confirms order."""
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
-            return
-
-        self.repo.update_order_status(event.order_id, "PAID")
-
-        # Create outbox event
-        order_confirmed_event = {
-            "event_id": event.event_id,
-            "event_type": "order.confirmed",
-            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
-            "correlation_id": event.correlation_id,
-            "order_id": event.order_id,
-            "user_id": event.user_id,
-        }
-
-        self.repo.add_outbox_event(
-            event.order_id,
-            "order.confirmed",
-            json.dumps(order_confirmed_event),
-        )
-
-        # Mark event as processed
-        self.repo.mark_event_processed(event.event_id, event.event_type)
-
-        self.db.commit()
-        logger.info(f"Order {event.order_id} confirmed")
-
-    def handle_payment_failed(self, event) -> None:
-        """Handle payment.failed event - cancels order."""
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
-            return
-
-        self.repo.update_order_status(event.order_id, "CANCELLED")
-
-        # Create outbox event
-        # Include cancellation_source to help downstream services understand WHY it was cancelled
-        order_cancelled_event = {
-            "event_id": event.event_id,
-            "event_type": "order.cancelled",
-            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
-            "correlation_id": event.correlation_id,
-            "order_id": event.order_id,
-            "user_id": event.user_id,
-            "reason": getattr(event, 'reason', "Payment processing failed"),
-            "cancellation_source": "payment_failed",  # ← Key field: tells Inventory Service TO release reserved stock
-        }
-
-        self.repo.add_outbox_event(
-            event.order_id,
-            "order.cancelled",
-            json.dumps(order_cancelled_event),
-        )
-
-        # Mark event as processed
-        self.repo.mark_event_processed(event.event_id, event.event_type)
-
-        self.db.commit()
-        logger.info(f"Order {event.order_id} cancelled due to payment failure")
-
+    
     def handle_inventory_reserved(self, event) -> None:
         """
         Handle inventory.reserved event from Inventory Service.
-        Amazon-style flow: Inventory reserved BEFORE payment.
+        Production-style flow: Inventory reserved BEFORE payment.
         Now that inventory is reserved, trigger payment processing.
         """
+        # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
             return
@@ -374,7 +319,80 @@ class SagaHandler:
         self.repo.mark_event_processed(event.event_id, event.event_type)
 
         self.db.commit()
-        logger.info(f"Order {event.order_id} cancelled due to inventory depletion (NO PAYMENT CHARGED)")
+        logger.info(f"Order {event.order_id} cancelled due to inventory depletion or insufficient stock (NO PAYMENT CHARGED)")
+
+    def handle_payment_processed(self, event) -> None:
+        """Handle payment.processed event - confirms order."""
+        if self.repo.is_event_processed(event.event_id):
+            logger.info(f"Event {event.event_id} already processed")
+            return
+
+        order = self.repo.get_order(event.order_id)
+        if not order:
+            logger.error(f"Order {event.order_id} not found")
+            return
+
+        self.repo.update_order_status(event.order_id, "PAID")
+
+        # Create outbox event
+        order_confirmed_event = {
+            "event_id": event.event_id,
+            "event_type": "order.confirmed",
+            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
+            "correlation_id": event.correlation_id,
+            "order_id": event.order_id,
+            "user_id": event.user_id,
+        }
+
+        self.repo.add_outbox_event(
+            event.order_id,
+            "order.confirmed",
+            json.dumps(order_confirmed_event),
+        )
+
+        # Mark event as processed
+        self.repo.mark_event_processed(event.event_id, event.event_type)
+
+        self.db.commit()
+        logger.info(f"Order {event.order_id} confirmed")
+
+    def handle_payment_failed(self, event) -> None:
+        """Handle payment.failed event - cancels order."""
+        if self.repo.is_event_processed(event.event_id):
+            logger.info(f"Event {event.event_id} already processed")
+            return
+
+        order = self.repo.get_order(event.order_id)
+        if not order:
+            logger.error(f"Order {event.order_id} not found")
+            return
+
+        self.repo.update_order_status(event.order_id, "CANCELLED")
+
+        # Create outbox event
+        # Include cancellation_source to help downstream services understand WHY it was cancelled
+        order_cancelled_event = {
+            "event_id": event.event_id,
+            "event_type": "order.cancelled",
+            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
+            "correlation_id": event.correlation_id,
+            "order_id": event.order_id,
+            "user_id": event.user_id,
+            "reason": getattr(event, 'reason', "Payment processing failed"),
+            "cancellation_source": "payment_failed",  # ← Key field: tells Inventory Service TO release reserved stock
+        }
+
+        self.repo.add_outbox_event(
+            event.order_id,
+            "order.cancelled",
+            json.dumps(order_cancelled_event),
+        )
+
+        # Mark event as processed
+        self.repo.mark_event_processed(event.event_id, event.event_type)
+
+        self.db.commit()
+        logger.info(f"Order {event.order_id} cancelled due to payment failure")
 
     def handle_order_fulfilled(self, event) -> None:
         """Handle order.fulfilled event from fulfillment service/job."""
@@ -397,7 +415,7 @@ class SagaHandler:
 
 
 class OutboxPublisher:
-    """Background thread to publish outbox events."""
+    """Background thread to publish outbox events every few seconds."""
 
     def __init__(self, db_session: Session, producer, poll_interval: int = 2):
         """Initialize publisher."""
