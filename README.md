@@ -253,7 +253,7 @@ Follow these steps to connect to the database:
 4. **Fill in the connection details:**
 
 **General Tab:**
-   - Name: `kafka_ecom_db`
+   - Name: `kafka_ecom`
    - Description: (optional) Main Kafka E-commerce Database
 
 **Connection Tab:**
@@ -493,22 +493,22 @@ Available timezones: Use standard IANA format like:
 
 ```bash
 # Add item to cart
-curl -X POST http://localhost:8001/cart/user123/items \
+curl -X POST http://localhost:8001/cart/user_001/items \
   -H "Content-Type: application/json" \
   -d '{
-    "product_id": "PROD-123",
+    "product_id": "PROD-D0934F50871D",
     "quantity": 2,
-    "price": 49.99
-  }'
+    "price": 24.99
+  }' | jq .
 
 # Get cart
-curl http://localhost:8001/cart/user123
+curl http://localhost:8001/cart/user_001 | jq .
 
 # Remove item
-curl -X DELETE http://localhost:8001/cart/user123/items/PROD-123
+curl -X DELETE http://localhost:8001/cart/user_001/items/PROD-D0934F50871D | jq .
 
-# Checkout
-curl -X POST http://localhost:8001/cart/user123/checkout
+# Checkout (initiates order saga)
+curl -X POST http://localhost:8001/cart/user_001/checkout | jq .
 ```
 
 ### Inventory Service

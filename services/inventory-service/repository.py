@@ -57,6 +57,7 @@ class InventoryRepository:
             current_version = product.version
 
             # Try to update with optimistic lock
+            # updated will be 1 if the update succeeded, 0 if there was a concurrent update (version mismatch)
             updated = self.db.query(Product).filter(
                 and_(
                     Product.product_id == product_id,
