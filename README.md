@@ -489,9 +489,12 @@ Available timezones: Use standard IANA format like:
 
 ## API Endpoints
 
-### Cart Service
+### Cart Service (Port 8001)
 
 ```bash
+# Health check
+curl http://localhost:8001/health | jq .
+
 # Add item to cart
 curl -X POST http://localhost:8001/cart/user_001/items \
   -H "Content-Type: application/json" \
@@ -504,6 +507,11 @@ curl -X POST http://localhost:8001/cart/user_001/items \
 # Get cart
 curl http://localhost:8001/cart/user_001 | jq .
 
+# Update item quantity
+curl -X PUT http://localhost:8001/cart/user_001/items/PROD-D0934F50871D \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": 5}' | jq .
+
 # Remove item
 curl -X DELETE http://localhost:8001/cart/user_001/items/PROD-D0934F50871D | jq .
 
@@ -511,34 +519,40 @@ curl -X DELETE http://localhost:8001/cart/user_001/items/PROD-D0934F50871D | jq 
 curl -X POST http://localhost:8001/cart/user_001/checkout | jq .
 ```
 
-### Inventory Service
+### Inventory Service (Port 8004)
 
 ```bash
+# Health check
+curl http://localhost:8004/health | jq .
+
 # List products
-curl http://localhost:8004/products
+curl http://localhost:8004/products | jq .
 
 # Get product details
-curl http://localhost:8004/products/PROD-001
+curl http://localhost:8004/products/PROD-001 | jq .
 ```
 
-### Order Service
+### Order Service (Port 8002)
 
 ```bash
+# Health check
+curl http://localhost:8002/health | jq .
+
 # Get order details
-curl http://localhost:8002/orders/ORD-ABC123
+curl http://localhost:8002/orders/ORD-ABC123 | jq .
 
 # Get all orders for a user
-curl http://localhost:8002/orders/user/user123
-
-# Health check
-curl http://localhost:8002/health
+curl http://localhost:8002/orders/user/user123 | jq .
 ```
 
-### Payment Service
+### Payment Service (Port 8003)
 
 ```bash
+# Health check
+curl http://localhost:8003/health | jq .
+
 # Get payment details
-curl http://localhost:8003/payments/PAY-XYZ789
+curl http://localhost:8003/payments/PAY-XYZ789 | jq .
 ```
 
 ## Database Schema
