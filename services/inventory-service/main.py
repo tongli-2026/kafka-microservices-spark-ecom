@@ -375,7 +375,7 @@ async def health() -> HealthResponse:
     )
 
 
-# Product Endpoints (for demonstration purposes, not fully implemented with authentication/authorization)
+# Product endpoints (for demonstration purposes, not fully implemented with authentication/authorization)
 @app.get("/products", response_model=ProductsListResponse)
 async def list_products() -> ProductsListResponse:
     """List all products."""

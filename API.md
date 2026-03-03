@@ -839,20 +839,13 @@ reason: str | None      # Failure reason if failed (Optional)
 created_at: str | None  # Payment timestamp (Optional)
 ```
 
-**`ErrorResponse`** (All services)
-```python
-detail: str             # Error message
-status_code: int        # HTTP status
-timestamp: datetime     # When error occurred
-```
-
 ### Endpoint Implementation Pattern
 
 All endpoints follow this pattern:
 
 ```python
 from fastapi import HTTPException
-from .schemas import ResponseSchema, ErrorResponse
+from .schemas import ResponseSchema
 
 @app.get("/endpoint/{id}", response_model=ResponseSchema)
 async def endpoint_name(id: int) -> ResponseSchema:
@@ -890,7 +883,7 @@ async def endpoint_name(id: int) -> ResponseSchema:
 - GET /health → HealthResponse
 
 #### Order Service (`services/order-service/schemas.py`)
-**New Schemas**: UserOrdersResponse, ErrorResponse
+**New Schemas**: UserOrdersResponse
 **Enhanced Schemas**: OrderResponse (added created_at, updated_at)
 **Updated Endpoints**: 3 total
 - GET /orders/{order_id} → OrderResponse
@@ -898,7 +891,7 @@ async def endpoint_name(id: int) -> ResponseSchema:
 - GET /health → HealthResponse
 
 #### Inventory Service (`services/inventory-service/schemas.py`)
-**New Schemas**: ProductsListResponse, ErrorResponse
+**New Schemas**: ProductsListResponse
 **Enhanced Schemas**: ProductSchema (added description)
 **Updated Endpoints**: 3 total
 - GET /products → ProductsListResponse
@@ -906,7 +899,7 @@ async def endpoint_name(id: int) -> ResponseSchema:
 - GET /health → HealthResponse
 
 #### Payment Service (`services/payment-service/schemas.py`)
-**New Schemas**: PaymentListResponse, ErrorResponse
+**New Schemas**: PaymentListResponse
 **Enhanced Schemas**: PaymentSchema (added created_at)
 **Updated Endpoints**: 2 total
 - GET /payments/{payment_id} → PaymentSchema

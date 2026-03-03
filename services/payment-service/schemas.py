@@ -25,13 +25,6 @@ class PaymentListResponse(BaseModel):
     total_payments: int
 
 
-class ErrorResponse(BaseModel):
-    """Response model for error messages."""
-
-    error: str
-    status_code: int = 404
-
-
 class HealthResponse(BaseModel):
     """Response model for health check."""
 

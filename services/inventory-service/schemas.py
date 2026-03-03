@@ -20,13 +20,6 @@ class ProductsListResponse(BaseModel):
     total_products: int
 
 
-class ErrorResponse(BaseModel):
-    """Response model for error messages."""
-
-    error: str
-    status_code: int = 404
-
-
 class HealthResponse(BaseModel):
     """Response model for health check."""
 
