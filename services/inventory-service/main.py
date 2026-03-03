@@ -365,6 +365,7 @@ app = FastAPI(title="Inventory Service", version="1.0.0", lifespan=lifespan)
 
 
 # API Endpoints
+# Health check endpoint
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Health check endpoint."""

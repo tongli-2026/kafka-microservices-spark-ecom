@@ -47,6 +47,8 @@ def seed_products(db: Session) -> None:
             continue
 
         # Random stock between 10 and 100
+        # We start from 10 to ensure we have some stock for testing, and up to 100 to create variability in our product inventory. 
+        # This allows us to test scenarios with both low and high stock levels, which is important for validating our inventory management logic and ensuring that our system can handle different stock situations effectively.
         stock = random.randint(10, 100)
         repo.create_product(name, description, price, stock)
 

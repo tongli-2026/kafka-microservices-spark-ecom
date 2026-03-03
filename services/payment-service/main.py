@@ -3,7 +3,7 @@ payment-service/main.py - Payment Processing Microservice
 
 PURPOSE:
     Processes payment transactions for e-commerce orders with simulated
-    payment gateway integration. Implements Amazon-style inventory-first flow
+    payment gateway integration. Implements Production-style inventory-first flow
     where payment is only processed AFTER inventory is successfully reserved.
 
 PAYMENT FLOW (Inventory-First Pattern):
@@ -49,6 +49,7 @@ KAFKA EVENTS:
 DATABASE:
     PostgreSQL table: payments
     Columns:
+        - id: Auto-increment primary key
         - payment_id: Unique identifier (PAY-XXXXX)
         - order_id: Associated order identifier
         - user_id: Customer identifier
@@ -57,14 +58,14 @@ DATABASE:
         - method: Payment method (card, etc.)
         - status: SUCCESS or FAILED
         - reason: Failure reason (if status=FAILED)
-        - transaction_id: Gateway transaction reference
         - created_at: Timestamp
+        - updated_at: Timestamp
 
 FLOW COMPARISON:
     ❌ WRONG (Stripe-style): Cart → Order → Payment → Inventory
        Risk: Charge first, check stock later → refunds needed
-    
-    ✅ CORRECT (Amazon-style): Cart → Order → Inventory → Payment
+
+    ✅ CORRECT (Production-style): Cart → Order → Inventory → Payment
        Benefit: Guarantee stock before charging customer
 
 USAGE:
@@ -183,7 +184,7 @@ async def lifespan(app: FastAPI):
         )
 
         def handle_order_reservation_confirmed(event):
-            """Handle order.reservation_confirmed event (Amazon-style: process payment only after inventory is reserved)."""
+            """Handle order.reservation_confirmed event (Production-style: process payment only after inventory is reserved)."""
             logger.info(
                 f"Processing payment for order {event.order_id} (inventory reserved)",
                 extra={"event_type": event.event_type, "correlation_id": event.correlation_id},
@@ -247,6 +248,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error in payment consumer: {e}")
 
+    # Start consumer thread
     consumer_thread = threading.Thread(target=payment_consumer, daemon=True)
     consumer_thread.start()
     logger.info("Payment consumer thread started")
@@ -261,6 +263,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Payment Service", version="1.0.0", lifespan=lifespan)
 
 
+# API Endpoints
+# Health check endpoint
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Health check endpoint."""
@@ -270,7 +274,7 @@ async def health() -> HealthResponse:
         version="1.0.0",
     )
 
-
+# Retrieve payment details endpoint
 @app.get("/payments/{payment_id}", response_model=PaymentSchema)
 async def get_payment(payment_id: str) -> PaymentSchema:
     """Get payment details."""
