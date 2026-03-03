@@ -1,14 +1,14 @@
 """
-inventory-service/main.py - Inventory and Product Management Microservice
+inventory-service/main.py - Inventory and Stock Management Microservice
 
 PURPOSE:
-    Manages product catalog and stock levels. Handles inventory reservations
-    when orders are created and releases stock if orders are cancelled.
-    Implements production-style inventory-first flow with optimistic locking.
+    Manages product catalog and stock levels with production-grade inventory-first
+    pattern. Handles inventory reservations when orders are created and releases
+    stock if orders are cancelled. Implements optimistic locking to prevent overselling.
 
 INVENTORY WORKFLOW (Production-Style: Check Inventory FIRST):
     1. Listen for order.created events from Order Service
-    2. Attempt to reserve stock for each ordered item
+    2. Attempt to reserve stock for each ordered item (optimistic locking)
     3. If successful:
        - Publish inventory.reserved event → Order proceeds to payment
        - Check if stock is now low, publish inventory.low alert to admins
@@ -21,27 +21,32 @@ INVENTORY WORKFLOW (Production-Style: Check Inventory FIRST):
          * inventory_depleted: No action (stock was never reserved)
 
 KEY FEATURES:
-    - Optimistic Locking: Prevents overselling in concurrent scenarios
-    - Stock Reservation: Guarantees inventory before payment
-    - Production Pattern: Inventory checked BEFORE payment processing
-    - Low Stock Alerts: Proactive admin notifications
-    - Smart Cancellation Handling: Different logic based on cancellation reason
+    - Optimistic Locking: Prevents overselling in concurrent scenarios (3 retry attempts)
+    - Stock Reservation: Guarantees inventory before payment processing
+    - Inventory-First Pattern: Stock checked BEFORE payment (Amazon-style)
+    - Low Stock Alerts: Proactive admin notifications when stock < 10 units
+    - Smart Cancellation Handling: Different logic based on cancellation source
+    - Seed Data: Initial product catalog loaded on startup
+
+DESIGN DECISION:
+    Product catalog is READ-ONLY in this service:
+    - Seeded with initial data on startup (seed_data.py)
+    - NO admin endpoints for create/update/delete
+    - Focus: Inventory management, NOT product management
+    - If future admin panel needed, create separate Admin Service
 
 RESPONSIBILITIES:
-    - Maintain product catalog (CRUD operations)
+    - Maintain product catalog (read-only, seeded data)
     - Track stock levels for all products with version control
-    - Reserve inventory for created orders (optimistic locking)
+    - Reserve inventory for created orders (with optimistic locking)
     - Release inventory for cancelled orders (only if payment failed)
     - Publish alerts on low stock or failed reservations
-    - Seed initial product data
+    - Prevent overselling through concurrent update handling
 
 API ENDPOINTS:
     GET    /products - List all products
     GET    /products/{product_id} - Get product details
-    POST   /products - Create new product (admin)
-    PUT    /products/{product_id} - Update product (admin)
-    DELETE /products/{product_id} - Delete product (admin)
-    GET    /health - Health check
+    GET    /health - Health check endpoint
 
 KAFKA EVENTS:
     CONSUMED:
@@ -51,54 +56,79 @@ KAFKA EVENTS:
     PUBLISHED:
         - inventory.reserved ✓: Stock successfully reserved → order proceeds to payment
         - inventory.depleted ✗: Insufficient stock → order cancelled (NO CHARGE)
-        - inventory.low: Stock below threshold after successful reservation (informational alert to admins)
+        - inventory.low: Stock below threshold after successful reservation (admin alert)
 
 SCENARIOS:
     Scenario 1: Sufficient Stock (e.g., 3 units available, customer buys 3)
         order.created → reserve_stock() succeeds → inventory.reserved published
         → Order proceeds to payment
-        → inventory.low alert may follow (informational only)
+        → inventory.low alert published (stock now < 10) → Admin notified
     
     Scenario 2: Insufficient Stock (e.g., 2 units available, customer wants 3)
         order.created → reserve_stock() fails → inventory.depleted published
         → Order Service cancels order with cancellation_source=inventory_depleted
-        → Inventory Service receives order.cancelled, sees inventory_depleted → NO stock release
+        → Inventory Service receives order.cancelled, sees inventory_depleted
+        → NO stock release (never reserved in first place)
         → Customer NOT charged ✓
     
     Scenario 3: Payment Failure After Successful Reservation
         order.created → reserve_stock() succeeds → inventory.reserved published
         → Order proceeds to payment → Payment fails
         → Order Service cancels order with cancellation_source=payment_failed
-        → Inventory Service receives order.cancelled, sees payment_failed → Release stock
+        → Inventory Service receives order.cancelled, sees payment_failed
+        → Release reserved stock back to inventory ✓
         → Stock back in inventory ✓
         → Customer NOT charged ✓
 
 CANCELLATION SOURCE TRACKING:
-    The order.cancelled event includes a cancellation_source field:
-    - "inventory_depleted": Order was cancelled because stock unavailable or insufficient (no release needed)
-    - "payment_failed": Order was cancelled because payment failed (release reserved stock)
+    The order.cancelled event includes a cancellation_source field for smart handling:
+    - "inventory_depleted": Stock unavailable/insufficient (no stock release needed)
+    - "payment_failed": Payment processing failed (release reserved stock back)
     
-    This allows Inventory Service to handle each scenario correctly without ambiguity.
+    This eliminates ambiguity and ensures correct inventory state in all scenarios.
 
 DATABASE:
-    - PostgreSQL table: products
-      Columns: id, product_id, name, description, price, stock, version, created_at, updated_at
-      Note: version field used for optimistic locking to prevent overselling
-    - PostgreSQL table: stock_reservations
-      Columns: id, order_id, product_id, quantity, created_at
+    PostgreSQL Tables:
+    
+    products:
+        - id: Primary key
+        - product_id: Unique product identifier (PROD-001, etc.)
+        - name: Product name
+        - description: Product details
+        - price: Unit price (USD)
+        - stock: Current available quantity
+        - version: Version for optimistic locking (incremented on each update)
+        - created_at: Timestamp
+        - updated_at: Timestamp
+    
+    stock_reservations (audit trail):
+        - id: Primary key
+        - order_id: Associated order
+        - product_id: Reserved product
+        - quantity: Reserved amount
+        - created_at: Timestamp
 
 STOCK ALERTS:
     - Low stock warning: Triggered when stock < 10 units (after successful reservation)
-    - Depleted/Insufficient: Triggered when reservation fails (regardless of current stock level)
+    - Depleted/Insufficient: Triggered when reservation fails (regardless of current level)
+    - Admin notification sent via Kafka event (inventory.low topic)
 
-OPTIMISTIC LOCKING:
+OPTIMISTIC LOCKING PATTERN:
     - Retries: Up to 3 attempts on concurrent conflicts
-    - Pattern: Read version → Attempt update with version condition → Retry if conflict
-    - Benefit: Prevents database locks while guaranteeing data consistency
+    - Mechanism: Read version → Attempt update with version WHERE clause → Retry if conflict
+    - Benefit: No database locks, prevents overselling, scales to high concurrency
+    - Fallback: After 3 retries, return failure (publish inventory.depleted)
+
+SEED DATA:
+    Initial product catalog loaded from seed_data.py on service startup:
+    - Ensures consistent demo environment
+    - Simplifies testing without admin API
+    - Provides stable reference data
 
 USAGE:
     Runs on port 8004 in Docker container
-    Access: http://localhost:8004/products/...
+    Depends on: PostgreSQL, Kafka, seed_data.py
+    Access: http://localhost:8004/products
 """
 
 import logging
