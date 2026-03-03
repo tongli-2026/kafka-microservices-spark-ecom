@@ -2,50 +2,75 @@
 payment-service/main.py - Payment Processing Microservice
 
 PURPOSE:
-    Handles payment processing for e-commerce orders with simulated
-    payment gateway integration. Supports success/failure scenarios.
+    Processes payment transactions for e-commerce orders with simulated
+    payment gateway integration. Implements Amazon-style inventory-first flow
+    where payment is only processed AFTER inventory is successfully reserved.
 
-PAYMENT FLOW:
-    1. Listen for order.created events from Order Service
-    2. Simulate payment processing (80% success, 20% failure)
-    3. Record payment transaction in database
-    4. Publish payment.processed event with result
-    5. Order Service reacts to payment result
+PAYMENT FLOW (Inventory-First Pattern):
+    1. Order Service creates order and reserves inventory with Inventory Service
+    2. Inventory Service confirms reservation → publishes inventory.reserved
+    3. Payment Service consumes order.reservation_confirmed event
+    4. Payment Service processes payment (80% success, 20% failure)
+    5. Publish payment.processed (success) or payment.failed (failure)
+    6. Order Service proceeds to fulfillment or cancels based on payment result
+
+KEY ADVANTAGE:
+    Payment only charged after inventory is guaranteed. Prevents:
+    - Customers charged for out-of-stock items (worst UX)
+    - Refunds needed for failed orders
+    - Inventory overselling
 
 RESPONSIBILITIES:
-    - Process payment transactions
-    - Simulate payment gateway integration
-    - Handle payment retries and failures
-    - Record payment history
-    - Publish payment result events
+    - Process payment transactions after inventory reservation confirmed
+    - Simulate payment gateway (with realistic success/failure rates)
+    - Record payment transaction history with full audit trail
+    - Publish payment result events for saga completion
+    - Provide payment history retrieval for customer orders
 
-SIMULATION:
-    - 80% chance of successful payment
-    - 20% chance of payment failure (for testing saga compensation)
-    - Random amount validation
+SIMULATION PARAMETERS:
+    - Success Rate: 80% (realistic for payment processors)
+    - Failure Rate: 20% (for testing saga compensation patterns)
+    - Failure Reasons: insufficient_funds, card_declined, expired_card
     - Idempotency: Prevents duplicate payments for same order
 
 API ENDPOINTS:
-    GET /payments/{payment_id} - Get payment details
-    GET /payments/order/{order_id} - Get payments for order
-    GET /health - Health check
+    GET /payments/{payment_id} - Retrieve payment details
+    GET /health - Health check endpoint
 
 KAFKA EVENTS:
     CONSUMED:
-        - order.created: Triggers payment processing
+        - order.reservation_confirmed: Order created AND inventory reserved
+                                        → Trigger payment processing
     
     PUBLISHED:
-        - payment.processed: Payment succeeded or failed
-        - payment.failed: Payment explicitly failed (alternative event)
+        - payment.processed: Payment succeeded (status: SUCCESS)
+        - payment.failed: Payment failed (status: FAILED with reason)
 
 DATABASE:
-    - PostgreSQL table: payments
-      Columns: payment_id, order_id, amount, status, 
-               payment_method, transaction_id, created_at
+    PostgreSQL table: payments
+    Columns:
+        - payment_id: Unique identifier (PAY-XXXXX)
+        - order_id: Associated order identifier
+        - user_id: Customer identifier
+        - amount: Transaction amount (USD)
+        - currency: Currency code (USD)
+        - method: Payment method (card, etc.)
+        - status: SUCCESS or FAILED
+        - reason: Failure reason (if status=FAILED)
+        - transaction_id: Gateway transaction reference
+        - created_at: Timestamp
+
+FLOW COMPARISON:
+    ❌ WRONG (Stripe-style): Cart → Order → Payment → Inventory
+       Risk: Charge first, check stock later → refunds needed
+    
+    ✅ CORRECT (Amazon-style): Cart → Order → Inventory → Payment
+       Benefit: Guarantee stock before charging customer
 
 USAGE:
     Runs on port 8003 in Docker container
-    Access: http://localhost:8003/payments/...
+    Depends on: Kafka, PostgreSQL, Order Service
+    Access: http://localhost:8003/payments/{payment_id}
 """
 
 import logging
