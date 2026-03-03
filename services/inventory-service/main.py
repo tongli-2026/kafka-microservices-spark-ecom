@@ -75,14 +75,14 @@ SCENARIOS:
 
 CANCELLATION SOURCE TRACKING:
     The order.cancelled event includes a cancellation_source field:
-    - "inventory_depleted": Order was cancelled because stock unavailable (no release needed)
+    - "inventory_depleted": Order was cancelled because stock unavailable or insufficient (no release needed)
     - "payment_failed": Order was cancelled because payment failed (release reserved stock)
     
     This allows Inventory Service to handle each scenario correctly without ambiguity.
 
 DATABASE:
     - PostgreSQL table: products
-      Columns: product_id, name, description, price, stock, version, created_at, updated_at
+      Columns: id, product_id, name, description, price, stock, version, created_at, updated_at
       Note: version field used for optimistic locking to prevent overselling
     - PostgreSQL table: stock_reservations
       Columns: id, order_id, product_id, quantity, created_at
@@ -114,6 +114,10 @@ from pydantic_settings import BaseSettings  # Configuration management
 from sqlalchemy import create_engine  # Database ORM
 from sqlalchemy.orm import sessionmaker  # Database session management
 
+# Import local schemas for input/output validation
+from schemas import HealthResponse, ProductSchema, ProductsListResponse  # Pydantic models
+from fastapi import HTTPException  # HTTP exception handling
+
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
@@ -124,7 +128,7 @@ from topic_initializer import create_topics  # Kafka topic creation
 from events import (
     InventoryReservedEvent,  # Stock reservation success
     InventoryLowEvent,  # Low stock warning
-    InventoryDepletedEvent,  # Out of stock alert
+    InventoryDepletedEvent,  # Out of stock or insufficient stock alert
 )
 
 # Setup logging
@@ -220,6 +224,7 @@ async def lifespan(app: FastAPI):
             topics=["order.created", "order.cancelled"],
         )
 
+        # Define low stock threshold for alerts
         LOW_STOCK_THRESHOLD = 10
 
         def handle_event(event):
@@ -329,42 +334,50 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Inventory Service", version="1.0.0", lifespan=lifespan)
 
 
-@app.get("/health")
-async def health():
+# API Endpoints
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
     """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "inventory-service",
-        "version": "1.0.0",
-    }
+    return HealthResponse(
+        status="ok",
+        service="inventory-service",
+        version="1.0.0",
+    )
 
 
-@app.get("/products")
-async def list_products():
+# Product Endpoints (for demonstration purposes, not fully implemented with authentication/authorization)
+@app.get("/products", response_model=ProductsListResponse)
+async def list_products() -> ProductsListResponse:
     """List all products."""
     from models import Product
 
     try:
         db = SessionLocal()
         products = db.query(Product).all()
-        return [
-            {
-                "product_id": p.product_id,
-                "name": p.name,
-                "price": p.price,
-                "stock": p.stock,
-            }
+        product_list = [
+            ProductSchema(
+                product_id=p.product_id,
+                name=p.name,
+                description=p.description,
+                price=p.price,
+                stock=p.stock,
+            )
             for p in products
         ]
+        return ProductsListResponse(
+            products=product_list,
+            total_products=len(product_list),
+        )
     except Exception as e:
         logger.error(f"Error listing products: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 
 
-@app.get("/products/{product_id}")
-async def get_product(product_id: str):
+# Get product details endpoint
+@app.get("/products/{product_id}", response_model=ProductSchema)
+async def get_product(product_id: str) -> ProductSchema:
     """Get product details."""
     from repository import InventoryRepository
 
@@ -374,18 +387,20 @@ async def get_product(product_id: str):
         product = repo.get_product(product_id)
 
         if not product:
-            return {"error": "Product not found"}, 404
+            raise HTTPException(status_code=404, detail="Product not found")
 
-        return {
-            "product_id": product.product_id,
-            "name": product.name,
-            "description": product.description,
-            "price": product.price,
-            "stock": product.stock,
-        }
+        return ProductSchema(
+            product_id=product.product_id,
+            name=product.name,
+            description=product.description,
+            price=product.price,
+            stock=product.stock,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting product: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

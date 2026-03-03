@@ -91,7 +91,7 @@ from fastapi import FastAPI, HTTPException, status  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
 
 # Import local schemas for input/output validation
-from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest  # Pydantic models
+from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest, MessageResponse, CheckoutResponse  # Pydantic models
 
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -192,8 +192,8 @@ async def health() -> HealthResponse:
 # The add_item endpoint allows clients to add a product to a user's shopping cart. 
 # It accepts a POST request with the user_id in the URL and the item details (product_id, quantity, price) in the request body as JSON. 
 # The endpoint updates the cart in Redis and publishes a cart.item_added event to Kafka with the item details and a correlation ID for tracing.
-@app.post("/cart/{user_id}/items", status_code=status.HTTP_201_CREATED)
-async def add_item(user_id: str, item: CartItemRequest) -> dict:
+@app.post("/cart/{user_id}/items", status_code=status.HTTP_201_CREATED, response_model=MessageResponse)
+async def add_item(user_id: str, item: CartItemRequest) -> MessageResponse:
     """Add item to cart and publish event."""
     from cart_repository import CartRepository, CartItem
 
@@ -217,7 +217,7 @@ async def add_item(user_id: str, item: CartItemRequest) -> dict:
         )
         producer.publish("cart.item_added", event)
 
-        return {"message": f"Item {item.product_id} added to cart"}
+        return MessageResponse(message=f"Item {item.product_id} added to cart")
     except Exception as e:
         logger.error(f"Error adding item to cart: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -225,8 +225,8 @@ async def add_item(user_id: str, item: CartItemRequest) -> dict:
 # The remove_item endpoint allows clients to remove a product from a user's shopping cart.
 # It accepts a DELETE request with the user_id and product_id in the URL.
 # The endpoint updates the cart in Redis and publishes a cart.item_removed event to Kafka with the product_id and a correlation ID for tracing. 
-@app.delete("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK)
-async def remove_item(user_id: str, product_id: str) -> dict:
+@app.delete("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK, response_model=MessageResponse)
+async def remove_item(user_id: str, product_id: str) -> MessageResponse:
     """Remove item from cart and publish event."""
     from cart_repository import CartRepository
 
@@ -242,7 +242,7 @@ async def remove_item(user_id: str, product_id: str) -> dict:
                 correlation_id=str(uuid4()),
             )
             producer.publish("cart.item_removed", event)
-            return {"message": f"Item {product_id} removed from cart"}
+            return MessageResponse(message=f"Item {product_id} removed from cart")
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -258,8 +258,8 @@ async def remove_item(user_id: str, product_id: str) -> dict:
 # It accepts a PUT request with the user_id and product_id in the URL and the new quantity in the request body.
 # If quantity is set to 0, the item is removed from the cart.
 # The endpoint publishes a cart.item_removed event if the item is removed, or no event if only quantity is updated.
-@app.put("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK)
-async def update_item_quantity(user_id: str, product_id: str, request: UpdateQuantityRequest) -> dict:
+@app.put("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK, response_model=MessageResponse)
+async def update_item_quantity(user_id: str, product_id: str, request: UpdateQuantityRequest) -> MessageResponse:
     """Update item quantity in cart. If quantity is 0, remove the item."""
     from cart_repository import CartRepository
 
@@ -288,9 +288,9 @@ async def update_item_quantity(user_id: str, product_id: str, request: UpdateQua
                 correlation_id=str(uuid4()),
             )
             producer.publish("cart.item_removed", event)
-            return {"message": f"Item {product_id} removed from cart"}
+            return MessageResponse(message=f"Item {product_id} removed from cart")
         else:
-            return {"message": f"Item {product_id} quantity updated to {quantity}"}
+            return MessageResponse(message=f"Item {product_id} quantity updated to {quantity}")
     except HTTPException:
         raise
     except Exception as e:
@@ -317,8 +317,8 @@ async def get_cart(user_id: str) -> CartResponse:
 # The endpoint retrieves the cart contents from Redis and checks if the cart is empty. 
 # If the cart has items, it publishes a cart.checkout_initiated event to Kafka with the cart details and a correlation ID for tracing.
 # The cart is then cleared synchronously from Redis.
-@app.post("/cart/{user_id}/checkout", status_code=status.HTTP_200_OK)
-async def checkout(user_id: str) -> dict:
+@app.post("/cart/{user_id}/checkout", status_code=status.HTTP_200_OK, response_model=CheckoutResponse)
+async def checkout(user_id: str) -> CheckoutResponse:
     """Initiate checkout and clear cart."""
     from cart_repository import CartRepository
 
@@ -346,10 +346,10 @@ async def checkout(user_id: str) -> dict:
         repo.clear_cart(user_id)
         logger.info(f"Cart cleared for user {user_id} after checkout")
 
-        return {
-            "message": "Checkout initiated",
-            "cart": cart,
-        }
+        return CheckoutResponse(
+            message="Checkout initiated",
+            cart=CartResponse(**cart),
+        )
     except HTTPException:
         raise
     except Exception as e:

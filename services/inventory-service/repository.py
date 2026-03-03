@@ -88,7 +88,7 @@ class InventoryRepository:
         return False
 
     def release_stock(self, product_id: str, quantity: int) -> bool:
-        """Release reserved stock (for cancelled orders)."""
+        """Release reserved stock (for cancelled orders due to payment failure)."""
         product = self.get_product(product_id)
 
         if not product:

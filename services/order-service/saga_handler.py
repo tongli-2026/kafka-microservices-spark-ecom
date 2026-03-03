@@ -323,6 +323,7 @@ class SagaHandler:
 
     def handle_payment_processed(self, event) -> None:
         """Handle payment.processed event - confirms order."""
+        # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
             return
@@ -358,6 +359,7 @@ class SagaHandler:
 
     def handle_payment_failed(self, event) -> None:
         """Handle payment.failed event - cancels order."""
+        # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
             return
@@ -396,6 +398,7 @@ class SagaHandler:
 
     def handle_order_fulfilled(self, event) -> None:
         """Handle order.fulfilled event from fulfillment service/job."""
+        # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
             return

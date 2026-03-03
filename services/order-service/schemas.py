@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -20,13 +20,30 @@ class CreateOrderRequest(BaseModel):
 
 
 class OrderResponse(BaseModel):
-    """Response model for order."""
+    """Response model for single order."""
 
     order_id: str
     user_id: str
     status: str
     items: List[Dict[str, Any]]
     total_amount: float
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class UserOrdersResponse(BaseModel):
+    """Response model for list of user orders."""
+
+    user_id: str
+    orders: List[OrderResponse]
+    total_orders: int
+
+
+class ErrorResponse(BaseModel):
+    """Response model for error messages."""
+
+    error: str
+    status_code: int = 404
 
 
 class HealthResponse(BaseModel):

@@ -7,8 +7,8 @@
 4. [Health Checks](#health-checks)
 5. [Cart Service](#cart-service)
 6. [Order Service](#order-service)
-7. [Payment Service](#payment-service)
-8. [Inventory Service](#inventory-service)
+7. [Inventory Service](#inventory-service)
+8. [Payment Service](#payment-service)
 9. [Event Flow Examples](#event-flow-examples)
 10. [Testing Guide](#testing-guide)
 
@@ -71,8 +71,8 @@ curl http://localhost:8002/orders/ORD-12345
 
 - **Cart Service**: `http://localhost:8001`
 - **Order Service**: `http://localhost:8002`
-- **Payment Service**: `http://localhost:8003`
 - **Inventory Service**: `http://localhost:8004`
+- **Payment Service**: `http://localhost:8003`
 - **Notification Service**: `http://localhost:8005`
 
 ---
@@ -209,6 +209,33 @@ curl -X DELETE http://localhost:8001/cart/user123/items/PROD-001
 
 ---
 
+### Update Item Quantity
+
+```http
+PUT /cart/{user_id}/items/{product_id}
+Content-Type: application/json
+
+{
+  "quantity": 5
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Item PROD-001 quantity updated to 5"
+}
+```
+
+**Example**:
+```bash
+curl -X PUT http://localhost:8001/cart/user123/items/PROD-001 \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": 5}'
+```
+
+---
+
 ### Checkout
 
 ```http
@@ -289,41 +316,53 @@ curl http://localhost:8002/orders/ORD-ABC123DEF
 
 ---
 
-## Payment Service (Port 8003)
-
-### Get Payment
+### Get User Orders
 
 ```http
-GET /payments/{payment_id}
+GET /orders/user/{user_id}
 ```
 
 **Response (200 OK)**:
 ```json
 {
-  "payment_id": "PAY-XYZ789ABC",
-  "order_id": "ORD-ABC123DEF",
   "user_id": "user123",
-  "amount": 99.98,
-  "currency": "USD",
-  "method": "card",
-  "status": "SUCCESS",
-  "reason": null,
-  "created_at": "2026-02-12T15:30:50.654321"
+  "orders": [
+    {
+      "order_id": "ORD-ABC123DEF",
+      "user_id": "user123",
+      "status": "FULFILLED",
+      "items": [
+        {
+          "product_id": "PROD-001",
+          "quantity": 2,
+          "price": 49.99
+        }
+      ],
+      "total_amount": 99.98,
+      "created_at": "2026-02-12T15:30:45.123456"
+    },
+    {
+      "order_id": "ORD-XYZ789ABC",
+      "user_id": "user123",
+      "status": "PAID",
+      "items": [
+        {
+          "product_id": "PROD-002",
+          "quantity": 1,
+          "price": 12.99
+        }
+      ],
+      "total_amount": 12.99,
+      "created_at": "2026-02-13T10:15:22.654321"
+    }
+  ],
+  "order_count": 2
 }
 ```
 
-**Status Values**:
-- `SUCCESS` - Payment processed successfully
-- `FAILED` - Payment failed (see `reason` field)
-
-**Failure Reasons** (when status=FAILED):
-- `insufficient_funds` - Card has insufficient funds
-- `card_declined` - Card was declined by issuer
-- `expired_card` - Card has expired
-
 **Example**:
 ```bash
-curl http://localhost:8003/payments/PAY-XYZ789ABC
+curl http://localhost:8002/orders/user/user123
 ```
 
 ---
@@ -381,6 +420,45 @@ GET /products/{product_id}
 **Example**:
 ```bash
 curl http://localhost:8004/products/PROD-001
+```
+
+---
+
+## Payment Service (Port 8003)
+
+### Get Payment
+
+```http
+GET /payments/{payment_id}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "payment_id": "PAY-XYZ789ABC",
+  "order_id": "ORD-ABC123DEF",
+  "user_id": "user123",
+  "amount": 99.98,
+  "currency": "USD",
+  "method": "card",
+  "status": "SUCCESS",
+  "reason": null,
+  "created_at": "2026-02-12T15:30:50.654321"
+}
+```
+
+**Status Values**:
+- `SUCCESS` - Payment processed successfully
+- `FAILED` - Payment failed (see `reason` field)
+
+**Failure Reasons** (when status=FAILED):
+- `insufficient_funds` - Card has insufficient funds
+- `card_declined` - Card was declined by issuer
+- `expired_card` - Card has expired
+
+**Example**:
+```bash
+curl http://localhost:8003/payments/PAY-XYZ789ABC
 ```
 
 ---
@@ -665,8 +743,9 @@ All 14 API endpoints use Pydantic-based response models for:
 
 **`CartItemRequest`**
 ```python
-product_id: int          # Required
-quantity: int            # Required
+product_id: str         # Required
+quantity: int           # Required
+price: float            # Required
 ```
 
 **`PaymentRequest`**
@@ -716,46 +795,48 @@ item_count: int         # Number of items
 
 **`OrderResponse`** (Order: 1 endpoint)
 ```python
-order_id: int           # Unique order identifier
-user_id: int            # Customer ID
+order_id: str           # Unique order identifier
+user_id: str            # Customer ID
 total_amount: float     # Order total
 status: str             # Order status (pending, paid, etc.)
 items: list[dict]       # Ordered items
-created_at: datetime    # Order creation time (Optional)
-updated_at: datetime    # Last update time (Optional)
+created_at: str | None  # Order creation time (Optional)
+updated_at: str | None  # Last update time (Optional)
 ```
 
 **`UserOrdersResponse`** (Order: 1 endpoint)
 ```python
-user_id: int            # Customer ID
+user_id: str            # Customer ID
 orders: list[OrderResponse]  # All orders by user
-order_count: int        # Total number of orders
+total_orders: int       # Total number of orders
 ```
 
 **`ProductSchema`** (Inventory: 1 endpoint)
 ```python
-product_id: int         # Unique identifier
+product_id: str         # Unique identifier
 name: str               # Product name
 price: float            # Unit price
-quantity_available: int # Stock quantity
+stock: int              # Available quantity
 description: str | None # Product description (Optional)
 ```
 
 **`ProductsListResponse`** (Inventory: 1 endpoint)
 ```python
 products: list[ProductSchema]  # All products
-total_count: int        # Number of products
-page: int               # Current page (if paginated)
+total_products: int     # Number of products
 ```
 
 **`PaymentSchema`** (Payment: 1 endpoint)
 ```python
-payment_id: int         # Unique identifier
-order_id: int           # Associated order
+payment_id: str         # Unique identifier
+order_id: str           # Associated order
+user_id: str            # User identifier
 amount: float           # Payment amount
+currency: str           # Currency code (e.g., "USD")
+method: str             # Payment method (e.g., "card")
 status: str             # Payment status (pending, completed, failed)
-payment_method: str     # How payment was made
-created_at: datetime    # Payment timestamp (Optional)
+reason: str | None      # Failure reason if failed (Optional)
+created_at: str | None  # Payment timestamp (Optional)
 ```
 
 **`ErrorResponse`** (All services)

@@ -61,6 +61,10 @@ from pydantic_settings import BaseSettings  # Configuration management
 from sqlalchemy import create_engine  # Database ORM
 from sqlalchemy.orm import sessionmaker  # Database session management
 
+# Import local schemas for input/output validation
+from schemas import HealthResponse, PaymentSchema, PaymentListResponse  # Pydantic models
+from fastapi import HTTPException  # HTTP exception handling
+
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
@@ -232,18 +236,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Payment Service", version="1.0.0", lifespan=lifespan)
 
 
-@app.get("/health")
-async def health():
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
     """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "payment-service",
-        "version": "1.0.0",
-    }
+    return HealthResponse(
+        status="ok",
+        service="payment-service",
+        version="1.0.0",
+    )
 
 
-@app.get("/payments/{payment_id}")
-async def get_payment(payment_id: str):
+@app.get("/payments/{payment_id}", response_model=PaymentSchema)
+async def get_payment(payment_id: str) -> PaymentSchema:
     """Get payment details."""
     from repository import PaymentRepository
 
@@ -253,22 +257,24 @@ async def get_payment(payment_id: str):
         payment = repo.get_payment(payment_id)
 
         if not payment:
-            return {"error": "Payment not found"}, 404
+            raise HTTPException(status_code=404, detail="Payment not found")
 
-        return {
-            "payment_id": payment.payment_id,
-            "order_id": payment.order_id,
-            "user_id": payment.user_id,
-            "amount": payment.amount,
-            "currency": payment.currency,
-            "method": payment.method,
-            "status": payment.status,
-            "reason": payment.reason,
-            "created_at": payment.created_at.isoformat(),
-        }
+        return PaymentSchema(
+            payment_id=payment.payment_id,
+            order_id=payment.order_id,
+            user_id=payment.user_id,
+            amount=payment.amount,
+            currency=payment.currency,
+            method=payment.method,
+            status=payment.status,
+            reason=payment.reason,
+            created_at=payment.created_at.isoformat(),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting payment: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

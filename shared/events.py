@@ -16,6 +16,7 @@ EVENT CATEGORIES:
        - order.reservation_confirmed
        - order.confirmed
        - order.cancelled
+       - order.fulfilled
     
     3. Inventory Events: Stock management
        - inventory.reserved

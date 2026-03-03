@@ -12,6 +12,7 @@ TOPICS CREATED:
     - order.created
     - order.reservation_confirmed
     - order.confirmed
+    - order.fulfilled
     - order.cancelled
     - inventory.reserved
     - inventory.low
@@ -29,7 +30,7 @@ CONFIGURATION:
 
 RETRY LOGIC:
     - Retries topic creation if Kafka brokers not ready
-    - 3 retry attempts with 5-second delays
+    - 10 retry attempts with 3-second delays
     - Logs all creation attempts and failures
 
 USAGE:

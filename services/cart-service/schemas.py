@@ -35,6 +35,19 @@ class CartResponse(BaseModel):
     item_count: int
 
 
+class MessageResponse(BaseModel):
+    """Response model for simple message responses."""
+
+    message: str
+
+
+class CheckoutResponse(BaseModel):
+    """Response model for checkout operation."""
+
+    message: str
+    cart: CartResponse
+
+
 class HealthResponse(BaseModel):
     """Response model for health check."""
 

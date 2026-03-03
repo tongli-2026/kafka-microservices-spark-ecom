@@ -101,6 +101,10 @@ from pydantic_settings import BaseSettings  # Configuration
 from sqlalchemy import create_engine  # Database ORM
 from sqlalchemy.orm import sessionmaker  # Database session management
 
+# Import local schemas for input/output validation
+from schemas import HealthResponse, OrderResponse, UserOrdersResponse  # Pydantic models
+from fastapi import HTTPException  # HTTP exception handling
+
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
@@ -327,19 +331,19 @@ app = FastAPI(title="Order Service", version="1.0.0", lifespan=lifespan)
 
 # API Endpoints
 # Health check endpoint
-@app.get("/health")
-async def health():
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
     """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "order-service",
-        "version": "1.0.0",
-    }
+    return HealthResponse(
+        status="ok",
+        service="order-service",
+        version="1.0.0",
+    )
 
 
 # Get order details by order_id
-@app.get("/orders/{order_id}")
-async def get_order(order_id: str):
+@app.get("/orders/{order_id}", response_model=OrderResponse)
+async def get_order(order_id: str) -> OrderResponse:
     """Get order details."""
     from repository import OrderRepository
 
@@ -349,27 +353,29 @@ async def get_order(order_id: str):
         order = repo.get_order(order_id)
 
         if not order:
-            return {"error": "Order not found"}, 404
+            raise HTTPException(status_code=404, detail="Order not found")
 
-        return {
-            "order_id": order.order_id,
-            "user_id": order.user_id,
-            "status": order.status,
-            "items": order.items,
-            "total_amount": order.total_amount,
-            "created_at": order.created_at.isoformat(),
-            "updated_at": order.updated_at.isoformat(),
-        }
+        return OrderResponse(
+            order_id=order.order_id,
+            user_id=order.user_id,
+            status=order.status,
+            items=order.items,
+            total_amount=order.total_amount,
+            created_at=order.created_at.isoformat(),
+            updated_at=order.updated_at.isoformat(),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting order: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 
 
 # Get all orders for a specific user
-@app.get("/orders/user/{user_id}")
-async def get_user_orders(user_id: str):
+@app.get("/orders/user/{user_id}", response_model=UserOrdersResponse)
+async def get_user_orders(user_id: str) -> UserOrdersResponse:
     """Get all orders for a specific user."""
     from repository import OrderRepository
 
@@ -380,30 +386,31 @@ async def get_user_orders(user_id: str):
 
         # If no orders found, return empty list with total_orders = 0 instead of 404
         if not orders:
-            return {
-                "user_id": user_id,
-                "orders": [],
-                "total_orders": 0,
-            }
+            return UserOrdersResponse(
+                user_id=user_id,
+                orders=[],
+                total_orders=0,
+            )
 
-        return {
-            "user_id": user_id,
-            "orders": [
-                {
-                    "order_id": order.order_id,
-                    "status": order.status,
-                    "total_amount": order.total_amount,
-                    "items": order.items,
-                    "created_at": order.created_at.isoformat(),
-                    "updated_at": order.updated_at.isoformat(),
-                }
+        return UserOrdersResponse(
+            user_id=user_id,
+            orders=[
+                OrderResponse(
+                    order_id=order.order_id,
+                    status=order.status,
+                    total_amount=order.total_amount,
+                    items=order.items,
+                    user_id=order.user_id,
+                    created_at=order.created_at.isoformat(),
+                    updated_at=order.updated_at.isoformat(),
+                )
                 for order in orders
             ],
-            "total_orders": len(orders),
-        }
+            total_orders=len(orders),
+        )
     except Exception as e:
         logger.error(f"Error getting user orders: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

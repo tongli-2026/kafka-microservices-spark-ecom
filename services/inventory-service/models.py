@@ -19,7 +19,7 @@ class Product(Base):
     description = Column(String(1000), nullable=True)
     price = Column(Float, nullable=False)
     stock = Column(Integer, nullable=False)
-    version = Column(Integer, default=0, nullable=False)  # Optimistic lock
+    version = Column(Integer, default=0, nullable=False)  # Optimistic lock - incremented on each update
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
