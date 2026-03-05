@@ -9,10 +9,6 @@
 #   Tests core functionality: inventory-first order flow, payment idempotency,
 #   race condition handling, and system stability under load.
 #
-# IMPORTANT: Validates the critical idempotency fix where:
-#   - BEFORE: 3 items = 3 inventory.reserved events = 3 duplicate emails ❌
-#   - AFTER: 3 items = 1 inventory.reserved event = 1 confirmation email ✓
-#
 # USAGE:
 #   ./test-scenarios.sh              # Run all 10 scenarios with default 5 stress orders
 #   ./test-scenarios.sh 10           # Run with custom stress test (10 orders instead of 5)
@@ -50,9 +46,11 @@
 #   ✓ Detailed step-by-step assertions for debugging
 #
 # VERIFICATION WITH MAILHOG (http://localhost:8025):
-#   Scenario 1: Should see 1 "order.confirmed" email (not 3)
-#   Scenario 2: Should see "payment.failed" email
-#   Scenario 4: Should see "inventory.low" admin alert email
+#   Scenario 2: Should see "Payment Failed for Order" email to customer
+#   Scenario 3: Should see "Out of Stock or Insufficient Stock Alert" email to admin
+#   Scenario 4: Should see "Low Stock Alert" email to admin
+#   Scenario 5: Should see 1 "Order Confirmed" email (not 3 duplicates) ✓
+#   Scenario 8: Should see no duplicate confirmation emails (idempotency check)
 #
 # VERIFICATION WITH DATABASE:
 #   docker exec postgres psql -U postgres -d kafka_ecom -c \
