@@ -6,7 +6,7 @@
 # that the system handles them correctly without creating duplicates
 #
 # Usage: ./kafka-idempotency-test.sh [test-name]
-# Example: ./kafka-idempotency-test.sh duplicate-payment
+# Example: ./kafka-idempotency-test.sh dup-payment # Runs the duplicate payment event test
 ################################################################################
 
 set -e
@@ -56,7 +56,7 @@ print_info() {
 check_kafka() {
     print_step "Checking Kafka connectivity..."
     
-    if docker exec kafka-broker-1 kafka-topics.sh \
+    if docker exec kafka-broker-1 /opt/kafka/bin/kafka-topics.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --list > /dev/null 2>&1; then
         print_success "Kafka broker is running"
@@ -71,7 +71,7 @@ check_kafka() {
 list_topics() {
     print_header "Available Kafka Topics"
     
-    docker exec kafka-broker-1 kafka-topics.sh \
+    docker exec kafka-broker-1 /opt/kafka/bin/kafka-topics.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --list | nl
 }
@@ -82,7 +82,7 @@ publish_event() {
     local message=$2
     
     echo "$message" | docker exec -i kafka-broker-1 \
-        kafka-console-producer.sh \
+        /opt/kafka/bin/kafka-console-producer.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --topic "$topic" > /dev/null 2>&1
 }
@@ -91,7 +91,7 @@ publish_event() {
 get_topic_message_count() {
     local topic=$1
     
-    docker exec kafka-broker-1 kafka-run-class.sh \
+    docker exec kafka-broker-1 /opt/kafka/bin/kafka-run-class.sh \
         kafka.tools.GetOffsetShell \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --topic "$topic" 2>/dev/null | \
@@ -106,7 +106,7 @@ test_list_topics() {
     print_header "Test: List Available Topics"
     
     print_step "Fetching Kafka topics..."
-    docker exec kafka-broker-1 kafka-topics.sh \
+    docker exec kafka-broker-1 /opt/kafka/bin/kafka-topics.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --list
     
@@ -128,7 +128,7 @@ test_monitor_topic() {
     echo ""
     
     timeout 10 docker exec kafka-broker-1 \
-        kafka-console-consumer.sh \
+        /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --topic "$topic" \
         --from-beginning \
@@ -206,7 +206,7 @@ test_consumer_group_lag() {
     print_step "Checking consumer group status..."
     echo ""
     
-    docker exec kafka-broker-1 kafka-consumer-groups.sh \
+    docker exec kafka-broker-1 /opt/kafka/bin/kafka-consumer-groups.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --group "$group" \
         --describe 2>/dev/null || print_info "Consumer group '$group' not found or no messages consumed"
@@ -225,7 +225,7 @@ test_topic_metadata() {
     print_header "Test: Topic Metadata - $topic"
     
     print_step "Describing topic: $topic"
-    docker exec kafka-broker-1 kafka-topics.sh \
+    docker exec kafka-broker-1 /opt/kafka/bin/kafka-topics.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --topic "$topic" \
         --describe 2>/dev/null || print_info "Topic '$topic' not found"
@@ -300,7 +300,7 @@ test_message_timeline() {
     echo ""
     
     docker exec kafka-broker-1 \
-        kafka-console-consumer.sh \
+        /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server $KAFKA_BOOTSTRAP \
         --topic "$topic" \
         --from-beginning \
