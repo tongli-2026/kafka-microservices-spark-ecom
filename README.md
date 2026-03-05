@@ -519,19 +519,6 @@ curl -X DELETE http://localhost:8001/cart/user_001/items/PROD-D0934F50871D | jq 
 curl -X POST http://localhost:8001/cart/user_001/checkout | jq .
 ```
 
-### Inventory Service (Port 8004)
-
-```bash
-# Health check
-curl http://localhost:8004/health | jq .
-
-# List products
-curl http://localhost:8004/products | jq .
-
-# Get product details
-curl http://localhost:8004/products/PROD-001 | jq .
-```
-
 ### Order Service (Port 8002)
 
 ```bash
@@ -543,6 +530,19 @@ curl http://localhost:8002/orders/ORD-ABC123 | jq .
 
 # Get all orders for a user
 curl http://localhost:8002/orders/user/user123 | jq .
+```110910
+
+### Inventory Service (Port 8004)
+
+```bash
+# Health check
+curl http://localhost:8004/health | jq .
+
+# List products
+curl http://localhost:8004/products | jq .
+
+# Get product details
+curl http://localhost:8004/products/PROD-001 | jq .
 ```
 
 ### Payment Service (Port 8003)

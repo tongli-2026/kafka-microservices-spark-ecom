@@ -38,5 +38,5 @@ class PaymentRepository:
         return self.db.query(Payment).filter(Payment.payment_id == payment_id).first()
 
     def get_payment_by_order(self, order_id: str) -> Payment:
-        """Get payment by order ID."""
+        """Get payment by order ID (unique constraint ensures at most one payment per order)."""
         return self.db.query(Payment).filter(Payment.order_id == order_id).first()

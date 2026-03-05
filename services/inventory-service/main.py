@@ -263,7 +263,16 @@ async def lifespan(app: FastAPI):
             repo = InventoryRepository(db)
 
             if event.event_type == "order.created":
-                # Reserve stock for each item in order
+                # FIX: Reserve stock for ALL items atomically
+                # If ANY item fails, publish inventory.depleted once and stop
+                # Only if ALL items succeed, publish ONE inventory.reserved event with all items
+                
+                all_items_reserved = True
+                failed_product_id = None
+                reserved_items = []  # Track successfully reserved items for the event
+                low_stock_products = []
+                
+                # First, try to reserve stock for all items in the order
                 for item in event.items:
                     product_id = item.get("product_id")
                     quantity = item.get("quantity")
@@ -271,40 +280,59 @@ async def lifespan(app: FastAPI):
                     success = repo.reserve_stock(event.order_id, product_id, quantity)
 
                     if success:
-                        # Publish inventory.reserved event (reservation succeeded)
-                        reserved_event = InventoryReservedEvent(
-                            order_id=event.order_id,
-                            product_id=product_id,
-                            quantity=quantity,
-                            correlation_id=event.correlation_id,
-                        )
-                        producer.publish("inventory.reserved", reserved_event)
-
+                        # Track this item as successfully reserved
+                        reserved_items.append({
+                            'product_id': product_id,
+                            'quantity': quantity,
+                        })
+                        
                         # Check remaining stock levels for informational alerts
                         current_stock = repo.get_stock_level(product_id)
-                        # Publish inventory.low as informational alert no matter when current_stock is low or depleted
                         if current_stock < LOW_STOCK_THRESHOLD:
-                            low_event = InventoryLowEvent(
-                                product_id=product_id,
-                                current_stock=current_stock,
-                                threshold=LOW_STOCK_THRESHOLD,
-                                correlation_id=event.correlation_id,
-                            )
-                            producer.publish("inventory.low", low_event)
-                            logger.info(f"Product {product_id} stock is low ({current_stock} units remaining)")
+                            low_stock_products.append({
+                                'product_id': product_id,
+                                'current_stock': current_stock,
+                                'threshold': LOW_STOCK_THRESHOLD,
+                            })
                     else:
-                        # Reservation failed - cannot fulfill order due to insufficient stock or depleted inventory
+                        # Reservation failed - cannot fulfill order due to insufficient stock
                         current_stock = repo.get_stock_level(product_id)
                         logger.error(f"Failed to reserve stock for product {product_id}: need {quantity}, have {current_stock}")
-                        
-                        # Publish inventory.depleted to signal order cancellation
-                        # (depleted means insufficient inventory, regardless of whether it's 0 or just low compared to requested quantity)
-                        depleted_event = InventoryDepletedEvent(
-                            order_id=event.order_id,  # Order Service needs this to know which order to cancel
-                            product_id=product_id,
+                        all_items_reserved = False
+                        failed_product_id = product_id
+                        break  # Stop processing - order cannot proceed
+
+                # Handle results: either all succeeded or all failed
+                if all_items_reserved:
+                    # ALL items successfully reserved - publish ONE inventory.reserved event for the entire order
+                    # Include all items in the event so payment service knows what to charge for
+                    reserved_event = InventoryReservedEvent(
+                        order_id=event.order_id,
+                        items=reserved_items,  # Pass all successfully reserved items
+                        correlation_id=event.correlation_id,
+                    )
+                    producer.publish("inventory.reserved", reserved_event)
+                    logger.info(f"All {len(reserved_items)} items reserved for order {event.order_id}")
+                    
+                    # Publish low stock alerts for all products that crossed the threshold
+                    for product_info in low_stock_products:
+                        low_event = InventoryLowEvent(
+                            product_id=product_info['product_id'],
+                            current_stock=product_info['current_stock'],
+                            threshold=product_info['threshold'],
                             correlation_id=event.correlation_id,
                         )
-                        producer.publish("inventory.depleted", depleted_event)
+                        producer.publish("inventory.low", low_event)
+                        logger.info(f"Product {product_info['product_id']} stock is low ({product_info['current_stock']} units remaining)")
+                else:
+                    # ONE OR MORE items failed to reserve - publish ONE inventory.depleted event to cancel order
+                    depleted_event = InventoryDepletedEvent(
+                        order_id=event.order_id,
+                        product_id=failed_product_id,
+                        correlation_id=event.correlation_id,
+                    )
+                    producer.publish("inventory.depleted", depleted_event)
+                    logger.info(f"Order {event.order_id} cancelled: insufficient stock for product {failed_product_id}")
 
             elif event.event_type == "order.cancelled":
                 # Release stock ONLY if order was cancelled due to payment failure

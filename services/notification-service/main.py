@@ -3,21 +3,20 @@ notification-service/main.py - Email Notification Microservice
 
 PURPOSE:
     Sends email notifications to users and administrators based on
-    e-commerce events. Integrates with Mailpit (SMTP server).
+    e-commerce events. Integrates with Mailhog (SMTP server).
 
 NOTIFICATION TYPES:
     - Order confirmations (to users)
     - Order fulfillment/shipment with tracking numbers (to users)
     - Order cancellations (to users)
-    - Payment receipts (to users)
+    - Payment failure alerts (to users)
     - Low stock alerts (to admins)
     - Out of stock alerts (to admins)
-    - Fraud alerts (to admins)
 
 RESPONSIBILITIES:
     - Listen to various Kafka events
     - Generate appropriate email content
-    - Send emails via SMTP (Mailpit)
+    - Send emails via SMTP (Mailhog)
     - Log all notification attempts
     - Handle email delivery failures
 
@@ -25,28 +24,30 @@ API ENDPOINTS:
     GET /health - Health check
 
 KAFKA EVENTS CONSUMED:
-    - order.confirmed: Send order confirmation email
-    - order.fulfilled: Send shipment email with tracking number
-    - order.cancelled: Send cancellation email
-    - payment.processed: Send payment receipt
-    - inventory.low: Alert admins about low stock
-    - inventory.depleted: Alert admins about depleted stock
+    - order.confirmed: Send order confirmation email to user
+    - order.fulfilled: Send shipment notification with tracking number to user
+    - order.cancelled: Send cancellation notification to user
+    - payment.failed: Send payment failure alert to user
+    - inventory.depleted: Send out-of-stock alert to admins
+    - inventory.low: Send low stock warning to admins
 
 EMAIL SERVER:
-    - Mailpit SMTP server (development/testing)
+    - Mailhog SMTP server (development/testing)
     - Host: mailhog (Docker container)
     - Port: 1025
     - Web UI: http://localhost:8025
 
 EMAIL TEMPLATES:
-    - Order confirmed: Order ID, items, total, delivery estimate
-    - Order cancelled: Order ID, reason, refund info
-    - Payment receipt: Payment ID, amount, method
-    - Inventory alerts: Product ID, name, current stock level
+    - Order confirmed: Order ID, user ID, confirmation message
+    - Order fulfilled: Order ID, tracking number, estimated delivery date
+    - Order cancelled: Order ID, cancellation reason
+    - Inventory low: Product ID, current stock level, threshold
+    - Inventory depleted: Product ID, out-of-stock status
+    - Payment failed: Order ID, failure reason
 
 USAGE:
     Runs on port 8005 in Docker container
-    Check sent emails: http://localhost:8025 (Mailpit UI)
+    Check sent emails: http://localhost:8025 (Mailhog UI)
 """
 
 import logging
@@ -106,15 +107,15 @@ async def lifespan(app: FastAPI):
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="notification-service-group",
-            topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.depleted", "payment.failed", "inventory.low"],
+            topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.low", "inventory.depleted", "payment.failed"],
         )
 
         email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
 
         def handle_event(event):
-            """Handle incoming event."""
+            """Handle incoming events."""
             if event.event_type == "order.confirmed":
-                # Send order confirmation email
+                # Send order confirmation email to user
                 subject = f"Order Confirmed #{event.order_id}"
                 body = f"""
 Dear Customer,
@@ -131,25 +132,8 @@ Kafka E-Commerce Team
 """
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
 
-            elif event.event_type == "payment.failed":
-                # Send payment failure email
-                subject = f"Payment Failed for Order #{event.order_id}"
-                body = f"""
-Dear Customer,
-
-Unfortunately, your payment for order {event.order_id} failed.
-
-Reason: {event.reason}
-
-Please try again or contact our support team.
-
-Best regards,
-Kafka E-Commerce Team
-"""
-                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
-
             elif event.event_type == "order.fulfilled":
-                # Send order fulfillment/shipment email with tracking number
+                # Send order fulfillment/shipment email with tracking number to user
                 subject = f"Your Order is On the Way! Order #{event.order_id}"
                 tracking_number = getattr(event, 'tracking_number', 'N/A')
                 body = f"""
@@ -171,7 +155,7 @@ Kafka E-Commerce Team
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
 
             elif event.event_type == "order.cancelled":
-                # Send order cancellation email
+                # Send order cancellation email to user of the order cancellation reason
                 subject = f"Order Cancelled #{event.order_id}"
                 reason = getattr(event, 'reason', 'Unknown reason')
                 body = f"""
@@ -189,28 +173,11 @@ Kafka E-Commerce Team
 """
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
 
-            elif event.event_type == "inventory.depleted":
-                # Send out-of-stock alert to admin
-                subject = f"Out of Stock Alert: Product #{event.product_id}"
-                product_id = getattr(event, 'product_id', 'Unknown')
-                body = f"""
-ADMIN ALERT - OUT OF STOCK
-
-Product ID: {product_id}
-Status: Depleted or Insufficient stock
-
-Orders may have been cancelled due to unavailability.
-Please restock or re-evaluate this product immediately.
-
-Kafka E-Commerce Team
-"""
-                email_sender.send_email(settings.admin_email, subject, body)
-
             elif event.event_type == "inventory.low":
                 # Send low stock alert to admin
                 subject = f"Low Stock Alert: Product #{event.product_id}"
                 body = f"""
-ADMIN ALERT
+ADMIN ALERT - LOW STOCK
 
 Product ID: {event.product_id}
 Current Stock: {event.current_stock}
@@ -222,6 +189,41 @@ Kafka E-Commerce Team
 """
                 email_sender.send_email(settings.admin_email, subject, body)
 
+            elif event.event_type == "inventory.depleted":
+                # Send out-of-stock or insufficient stock alert to admin
+                subject = f"Out of Stock or Insufficient Stock Alert: Product #{event.product_id}"
+                product_id = getattr(event, 'product_id', 'Unknown')
+                body = f"""
+ADMIN ALERT - OUT OF STOCK or INSUFFICIENT STOCK
+
+Product ID: {product_id}
+Status: Depleted or Insufficient stock
+
+Orders may have been cancelled due to unavailability.
+Please restock or re-evaluate this product immediately.
+
+Kafka E-Commerce Team
+"""
+                email_sender.send_email(settings.admin_email, subject, body)
+
+            elif event.event_type == "payment.failed":
+                # Send payment failure email to user with failure reason
+                subject = f"Payment Failed for Order #{event.order_id}"
+                body = f"""
+Dear Customer,
+
+Unfortunately, your payment for order {event.order_id} failed.
+
+Reason: {event.reason}
+
+Please try again or contact our support team.
+
+Best regards,
+Kafka E-Commerce Team
+"""
+                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+
+        # Start consuming events
         try:
             consumer.consume(handle_event)
         except Exception as e:
@@ -239,6 +241,7 @@ Kafka E-Commerce Team
 app = FastAPI(title="Notification Service", version="1.0.0", lifespan=lifespan)
 
 
+# API endpoint for health check
 @app.get("/health")
 async def health():
     """Health check endpoint."""

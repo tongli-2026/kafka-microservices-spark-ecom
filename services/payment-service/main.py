@@ -193,6 +193,14 @@ async def lifespan(app: FastAPI):
             db = SessionLocal()
             repo = PaymentRepository(db)
 
+            # FIX: Check for existing payment (idempotency via unique constraint on order_id)
+            # If payment already exists for this order, skip processing
+            existing_payment = repo.get_payment_by_order(event.order_id)
+            if existing_payment:
+                logger.info(f"Payment already processed for order {event.order_id} - skipping duplicate")
+                db.close()
+                return
+
             # Process payment
             success, reason = PaymentProcessor.process_payment(event.total_amount)
 

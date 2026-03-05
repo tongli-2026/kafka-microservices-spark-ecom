@@ -235,8 +235,9 @@ class InventoryReservedEvent(BaseEvent):
 
     event_type: str = "inventory.reserved"
     order_id: str
-    product_id: str
-    quantity: int
+    items: List[Dict[str, Any]]  # List of {product_id, quantity} for all reserved items
+    product_id: Optional[str] = None  # Deprecated: kept for backward compatibility
+    quantity: Optional[int] = None    # Deprecated: kept for backward compatibility
 
 
 class InventoryLowEvent(BaseEvent):

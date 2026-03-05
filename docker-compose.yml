@@ -134,6 +134,11 @@ services:
       - kafka-network
     environment:
       - TZ=America/Los_Angeles
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   mailhog:
     image: axllent/mailpit:latest
@@ -145,6 +150,12 @@ services:
       - kafka-network
     environment:
       - TZ=America/Los_Angeles
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 8025 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   cart-service:
     build:
@@ -154,10 +165,16 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - redis
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+      # redis is a critical dependency for the cart-service, as it relies on Redis to store and manage shopping cart data.
+      # Therefore, we use the `service_healthy` condition to ensure that the cart-service only starts after Redis is ready to accept connections and operate correctly. 
+      redis:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:
@@ -174,10 +191,16 @@ services:
     ports:
       - "8002:8002"
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - postgres
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+      # postgres is a critical dependency for the order-service, as it relies on the database to store and manage order data. 
+      # Therefore, we use the `service_healthy` condition to ensure that the order-service only starts after the database is ready.
+      postgres:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:
@@ -197,10 +220,16 @@ services:
     ports:
       - "8003:8003"
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - postgres
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+      # postgres is a critical dependency for the payment-service, as it relies on the database to store and manage payment data.
+      # Therefore, we use the `service_healthy` condition to ensure that the payment-service only starts after the database is ready.
+      postgres:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:
@@ -220,10 +249,16 @@ services:
     ports:
       - "8004:8004"
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - postgres
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+      # postgres is a critical dependency for the inventory-service, as it relies on the database to store and manage inventory data.
+      # Therefore, we use the `service_healthy` condition to ensure that the inventory-service only starts after the database is ready.
+      postgres:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:
@@ -243,10 +278,16 @@ services:
     ports:
       - "8005:8005"
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - mailhog
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+      # mailhog is a critical dependency for the notification-service, as it relies on MailHog to capture and manage outgoing emails for testing purposes.
+      # Therefore, we use the `service_healthy` condition to ensure that the notification-service only starts after MailHog is ready to accept connections and operate correctly. 
+      mailhog:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:

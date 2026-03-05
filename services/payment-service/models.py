@@ -15,7 +15,7 @@ class Payment(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     payment_id = Column(String(255), unique=True, nullable=False, index=True)
-    order_id = Column(String(255), nullable=False, index=True)
+    order_id = Column(String(255), unique=True, nullable=False, index=True)  # FIX: Unique constraint ensures only one payment per order (idempotency)
     user_id = Column(String(255), nullable=False, index=True)
     amount = Column(Float, nullable=False)
     currency = Column(String(3), default="USD", nullable=False)
