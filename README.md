@@ -591,21 +591,6 @@ CREATE TABLE processed_events (
   processed_at TIMESTAMP
 );
 
--- Payments
-CREATE TABLE payments (
-  id UUID PRIMARY KEY,
-  payment_id VARCHAR(255) UNIQUE,
-  order_id VARCHAR(255),
-  user_id VARCHAR(255),
-  amount FLOAT,
-  currency VARCHAR(3),
-  method VARCHAR(50),
-  status VARCHAR(50),
-  reason VARCHAR(255),
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
-);
-
 -- Inventory
 CREATE TABLE products (
   id UUID PRIMARY KEY,
@@ -625,6 +610,21 @@ CREATE TABLE stock_reservations (
   product_id VARCHAR(255),
   quantity INTEGER,
   created_at TIMESTAMP
+);
+
+-- Payments
+CREATE TABLE payments (
+  id UUID PRIMARY KEY,
+  payment_id VARCHAR(255) UNIQUE,
+  order_id VARCHAR(255),
+  user_id VARCHAR(255),
+  amount FLOAT,
+  currency VARCHAR(3),
+  method VARCHAR(50),
+  status VARCHAR(50),
+  reason VARCHAR(255),
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP
 );
 
 -- Analytics
@@ -1248,11 +1248,14 @@ Automatic order fulfillment as integrated background thread:
 - Configurable delays via environment variables
 - Simulates realistic shipping delays for testing
 
-### Saga Orchestration
-Order Service implements the Outbox Pattern + Saga Choreography:
-- Transactions: Order + OutboxEvent created atomically
-- Background thread publishes events every 2 seconds
-- Idempotency tracking prevents duplicate processing
+### Saga Orchestration with Outbox Pattern & Idempotency
+Order Service implements Saga Choreography with:
+- **Outbox Pattern**: Order + OutboxEvent created in atomic transaction, background thread publishes every 2 seconds
+- **Guaranteed Delivery**: Even if service crashes before Kafka publish, OutboxPublisher restarts and republishes
+- **Idempotency Tracking**: processed_events table prevents duplicate processing with UNIQUE(event_id) constraint
+- **Result**: No event loss, no duplicate charges/emails, practical exactly-once semantics
+
+👉 **See [IDEMPOTENCY_IMPLEMENTATION.md](./IDEMPOTENCY_IMPLEMENTATION.md)** for detailed architecture, code examples, crash recovery scenarios, test procedures, and verification queries.
 
 ### Optimistic Locking
 Inventory Service uses version-based optimistic locking:
