@@ -175,11 +175,11 @@ test_duplicate_payment_event() {
     print_step "Waiting for events to be processed (5 seconds)..."
     sleep 5
     
-    print_step "Verifying: checking order payment status..."
-    local order_response=$(curl -s "$ORDER_SERVICE/orders/$order_id" 2>/dev/null || echo "{}")
-    local payment_count=$(echo "$order_response" | jq '.payments | length // 0' 2>/dev/null || echo "0")
+    print_step "Verifying: checking Payment Service database for duplicate payments..."
+    # Query PostgreSQL directly to check if UNIQUE constraint prevented duplicate
+    local payment_count=$(docker exec postgres psql -U postgres -d ecommerce -t -c "SELECT COUNT(*) FROM payments WHERE order_id = '$order_id';" 2>/dev/null || echo "0")
     
-    print_info "Order response: $order_response"
+    print_info "Payment records found in database: $payment_count"
     echo ""
     
     if [ "$payment_count" -eq 1 ]; then
@@ -189,7 +189,7 @@ test_duplicate_payment_event() {
         print_failure "FAIL: Found $payment_count payments (duplicate charge!) ✗"
         echo ""
     else
-        print_info "Note: Order or payments not found (may be expected depending on system)"
+        print_info "Note: Payment not processed yet (may be expected - service may need to be listening)"
         echo ""
     fi
 }
