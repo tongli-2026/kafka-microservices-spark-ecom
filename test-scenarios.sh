@@ -1,20 +1,80 @@
 #!/bin/bash
 
 ################################################################################
-# Comprehensive E-Commerce Microservices Test Script
-# Tests 10 critical scenarios covering happy path, failures, and edge cases
+# E-Commerce Microservices Test Suite - 10 Critical Scenarios
+################################################################################
 #
-# Scenarios:
-#   1. Happy Path - Successful Purchase
-#   2. Payment Failure (20% failure rate)
-#   3. Out of Stock (Inventory Depleted)
-#   4. Low Stock Alert
-#   5. Multiple Items in Single Order
-#   6. Concurrent Orders on Same Product
-#   7. Order Status Lifecycle Verification
-#   8. Idempotency Check
-#   9. Cart Operations
-#   10. Stress Test (Multiple Orders)
+# DESCRIPTION:
+#   Comprehensive test script validating event-driven e-commerce microservices.
+#   Tests core functionality: inventory-first order flow, payment idempotency,
+#   race condition handling, and system stability under load.
+#
+# IMPORTANT: Validates the critical idempotency fix where:
+#   - BEFORE: 3 items = 3 inventory.reserved events = 3 duplicate emails ❌
+#   - AFTER: 3 items = 1 inventory.reserved event = 1 confirmation email ✓
+#
+# USAGE:
+#   ./test-scenarios.sh              # Run all 10 scenarios with default 5 stress orders
+#   ./test-scenarios.sh 10           # Run with custom stress test (10 orders instead of 5)
+#   chmod +x test-scenarios.sh       # Make executable first time
+#
+# PREREQUISITES:
+#   ✓ docker-compose up -d           # Services running on ports 8001-8005
+#   ✓ PostgreSQL database initialized
+#   ✓ Kafka topics created
+#   ✓ jq installed (for JSON parsing)
+#
+# WHAT IT TESTS:
+#   1. Happy Path ✅ - End-to-end successful order
+#   2. Payment Failure ❌ - Order cancelled before charging
+#   3. Out of Stock ❌ - Large order rejected before payment
+#   4. Low Stock Alert ⚠️ - Admin notification when stock < 10
+#   5. Multiple Items 📦 - Atomic all-or-nothing reservation
+#   6. Concurrent Orders ⚡ - Race condition handling with locking
+#   7. Order Lifecycle 📊 - Status progression (PENDING→FULFILLED)
+#   8. Idempotency 🔁 - No duplicate charges despite event retries
+#   9. Cart Operations 🛒 - Add, update quantity, remove, checkout
+#   10. Stress Test 💪 - System stability under rapid orders
+#
+# VALIDATION POINTS:
+#   ✓ No duplicate payments (payment idempotency via UNIQUE(order_id))
+#   ✓ No duplicate notifications (inventory events atomic per order)
+#   ✓ Correct state transitions (PENDING → RESERVATION_CONFIRMED → PAID → FULFILLED)
+#   ✓ No negative inventory (optimistic locking prevents overbooking)
+#   ✓ Services healthy after stress test (no crashes or hangs)
+#
+# OUTPUT:
+#   ✓ Color-coded results (green=pass, red=fail, yellow=warning)
+#   ✓ Pass rate percentage at end
+#   ✓ Links to Kafka UI, Mailhog for manual verification
+#   ✓ Detailed step-by-step assertions for debugging
+#
+# VERIFICATION WITH MAILHOG (http://localhost:8025):
+#   Scenario 1: Should see 1 "order.confirmed" email (not 3)
+#   Scenario 2: Should see "payment.failed" email
+#   Scenario 4: Should see "inventory.low" admin alert email
+#
+# VERIFICATION WITH DATABASE:
+#   docker exec postgres psql -U postgres -d kafka_ecom -c \
+#     "SELECT COUNT(*) FROM payments WHERE order_id='ORD-XXX'"
+#   Expected result: 1 (never duplicate, even if event replayed)
+#
+# EXPECTED RESULTS:
+#   Pass Rate >= 80% ✓ - System working correctly
+#   Pass Rate 50-80% ⚠️ - Some scenarios failing, investigate
+#   Pass Rate < 50% ❌ - Critical issues, system not ready
+#
+# TROUBLESHOOTING:
+#   Issue: "Services not ready" → Run: docker-compose up --build
+#   Issue: jq not found → Run: brew install jq (macOS) or apt-get install jq (Linux)
+#   Issue: Port in use → Check: docker ps | grep -E '800[1-5]'
+#   Issue: Scenario timeout → Services may be slow, increase sleep times
+#
+# ARCHITECTURE TESTED:
+#   Cart Service (8001) → Order Service (8002) → Inventory (8004) + Payment (8003)
+#                                              → Notification Service (8005)
+#   All communication via Kafka (3-broker cluster)
+#   Idempotency enforced at payment (DB constraint) and order (event tracking)
 #
 ################################################################################
 
