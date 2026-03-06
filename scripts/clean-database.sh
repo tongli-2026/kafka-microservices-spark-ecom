@@ -85,4 +85,4 @@ ORDER BY tablename;
 
 echo ""
 echo -e "${YELLOW}✓ Ready to run clean test:${NC}"
-echo "  ./test-complete-workflow.sh"
+echo "  ./scripts/test-complete-workflow.sh"

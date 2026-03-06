@@ -24,7 +24,7 @@ DETECTION LOGIC:
     - Alert severity: LOW, MEDIUM, HIGH, CRITICAL
 
 USAGE:
-    ./run-spark-job.sh fraud_detection
+    ./scripts/spark/run-spark-job.sh fraud_detection
 """
 
 import json

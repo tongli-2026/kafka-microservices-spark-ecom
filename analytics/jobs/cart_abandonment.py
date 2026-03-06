@@ -26,7 +26,7 @@ TRACKING LOGIC:
     - Watermarking: 15 seconds for late events
 
 USAGE:
-    ./run-spark-job.sh cart_abandonment
+    ./scripts/spark/run-spark-job.sh cart_abandonment
 """
 
 import logging

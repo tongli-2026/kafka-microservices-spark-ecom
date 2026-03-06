@@ -70,12 +70,19 @@ kafka-microservices-spark-ecom/
 │   └── TEST_*.md                     # Testing workflow guides
 │
 ├── 🔧 Scripts
+│   ├── README.md                     # Scripts usage guide
+│   ├── simulate-users.py             # User behavior simulation
+│   ├── test-scenarios.sh             # Test order scenarios
+│   ├── test-complete-workflow.sh     # Run complete workflow test
+│   ├── generate-orders.sh            # Generate test orders
+│   ├── view-carts.py                 # View Redis carts (Python)
 │   ├── clean-database.sh             # Clean PostgreSQL data
 │   ├── clean-kafka.sh                # Clean Kafka topics
-│   ├── run-spark-job.sh              # Submit Spark jobs
-│   ├── generate-orders.sh            # Generate test orders
-│   ├── test-complete-workflow.sh     # Run complete workflow test
-│   └── view_carts.py                 # View Redis carts (Python)
+│   └── spark/                        # Spark job management
+│       ├── start-spark-jobs.sh       # Start Spark jobs
+│       ├── start-spark-jobs-with-ui.sh # Start with UI
+│       ├── submit-spark-jobs.sh      # Submit Spark jobs
+│       └── run-spark-job.sh          # Run specific Spark job
 │
 ├── 📁 services/                      # Microservices (5 services)
 │   ├── cart-service/
@@ -349,7 +356,7 @@ cd /Users/tong/KafkaProjects/kafka-microservices-spark-ecom
 source .venv/bin/activate
 
 # 3. Run the script to view all active carts with TTL and items
-python view_carts.py
+.venv/bin/python scripts/view-carts.py
 ```
 
 Output:
@@ -456,13 +463,13 @@ Two helper scripts are provided:
 
 ```bash
 # Clean PostgreSQL (truncate all tables)
-./clean-database.sh
+./scripts/clean-database.sh
 
 # Clean Kafka (delete all messages from all topics)
-./clean-kafka.sh
+./scripts/clean-kafka.sh
 
 # Both together for complete reset
-./clean-database.sh && ./clean-kafka.sh
+./scripts/clean-database.sh && ./scripts/clean-kafka.sh
 ```
 
 ### System Timezone Configuration
@@ -1193,7 +1200,7 @@ docker logs spark-worker-1
 docker logs spark-worker-2
 
 # Submit test job
-./run-spark-job.sh revenue_streaming
+./scripts/spark/run-spark-job.sh revenue_streaming
 ```
 
 ### Database connection errors
@@ -1310,7 +1317,7 @@ Total Cluster Resources:
 
 **Using Helper Script** (Recommended):
 ```bash
-./run-spark-job.sh revenue_streaming
+./scripts/run-spark-job.sh revenue_streaming
 ```
 
 **Manual Submission**:

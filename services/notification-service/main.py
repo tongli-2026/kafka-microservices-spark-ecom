@@ -8,8 +8,9 @@ PURPOSE:
 NOTIFICATION TYPES:
     - Order confirmations (to users)
     - Order fulfillment/shipment with tracking numbers (to users)
-    - Order cancellations (to users)
-    - Payment failure alerts (to users)
+    - Order cancellations with reason (to users)
+      * Payment failed cancellation
+      * Out of stock cancellation
     - Low stock alerts (to admins)
     - Out of stock alerts (to admins)
 
@@ -26,8 +27,7 @@ API ENDPOINTS:
 KAFKA EVENTS CONSUMED:
     - order.confirmed: Send order confirmation email to user
     - order.fulfilled: Send shipment notification with tracking number to user
-    - order.cancelled: Send cancellation notification to user
-    - payment.failed: Send payment failure alert to user
+    - order.cancelled: Send cancellation notification to user (with specific reason)
     - inventory.depleted: Send out-of-stock alert to admins
     - inventory.low: Send low stock warning to admins
 
@@ -40,10 +40,11 @@ EMAIL SERVER:
 EMAIL TEMPLATES:
     - Order confirmed: Order ID, user ID, confirmation message
     - Order fulfilled: Order ID, tracking number, estimated delivery date
-    - Order cancelled: Order ID, cancellation reason
+    - Order cancelled (payment failed): Order ID, clear explanation that user not charged, retry option
+    - Order cancelled (out of stock): Order ID, clear explanation that user not charged, suggestion to browse
+    - Order cancelled (generic): Order ID, cancellation reason
     - Inventory low: Product ID, current stock level, threshold
     - Inventory depleted: Product ID, out-of-stock status
-    - Payment failed: Order ID, failure reason
 
 USAGE:
     Runs on port 8005 in Docker container
@@ -107,13 +108,15 @@ async def lifespan(app: FastAPI):
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="notification-service-group",
-            topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.low", "inventory.depleted", "payment.failed"],
+            topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.low", "inventory.depleted"],
         )
 
         email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
 
         def handle_event(event):
             """Handle incoming events."""
+            logger.info(f"Processing event: type={event.event_type}, order_id={getattr(event, 'order_id', 'N/A')}, event_id={event.event_id}")
+            
             if event.event_type == "order.confirmed":
                 # Send order confirmation email to user
                 subject = f"Order Confirmed #{event.order_id}"
@@ -155,10 +158,48 @@ Kafka E-Commerce Team
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
 
             elif event.event_type == "order.cancelled":
-                # Send order cancellation email to user of the order cancellation reason
-                subject = f"Order Cancelled #{event.order_id}"
+                # Send order cancellation email to user with clear explanation based on cancellation source
                 reason = getattr(event, 'reason', 'Unknown reason')
-                body = f"""
+                cancellation_source = getattr(event, 'cancellation_source', 'unknown')
+                
+                if cancellation_source == "payment_failed":
+                    # Payment processing failed - order cancelled WITHOUT charging customer
+                    subject = f"Order Cancelled - Payment Failed #{event.order_id}"
+                    body = f"""
+Dear Customer,
+
+Your payment for order {event.order_id} could not be processed.
+
+Reason: {reason}
+
+Your order has been cancelled and you will NOT be charged.
+
+If you would like to retry your purchase, please visit our store.
+
+Best regards,
+Kafka E-Commerce Team
+"""
+                elif cancellation_source == "inventory_depleted":
+                    # Item went out of stock - order cancelled WITHOUT charging customer
+                    subject = f"Order Cancelled - Out of Stock #{event.order_id}"
+                    body = f"""
+Dear Customer,
+
+Unfortunately, the items in your order are no longer available.
+
+Reason: {reason}
+
+Your order has been cancelled and you will NOT be charged.
+
+We apologize for the inconvenience. Please visit our store to find similar items.
+
+Best regards,
+Kafka E-Commerce Team
+"""
+                else:
+                    # Generic cancellation
+                    subject = f"Order Cancelled #{event.order_id}"
+                    body = f"""
 Dear Customer,
 
 Your order has been cancelled.
@@ -171,7 +212,10 @@ If you have any questions, please contact our support team.
 Best regards,
 Kafka E-Commerce Team
 """
+                
+                logger.info(f"Sending order cancellation email for order_id={event.order_id}, user_id={event.user_id}, reason={cancellation_source}")
                 email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+                logger.info(f"Successfully sent order cancellation email for order_id={event.order_id}")
 
             elif event.event_type == "inventory.low":
                 # Send low stock alert to admin
@@ -205,23 +249,6 @@ Please restock or re-evaluate this product immediately.
 Kafka E-Commerce Team
 """
                 email_sender.send_email(settings.admin_email, subject, body)
-
-            elif event.event_type == "payment.failed":
-                # Send payment failure email to user with failure reason
-                subject = f"Payment Failed for Order #{event.order_id}"
-                body = f"""
-Dear Customer,
-
-Unfortunately, your payment for order {event.order_id} failed.
-
-Reason: {event.reason}
-
-Please try again or contact our support team.
-
-Best regards,
-Kafka E-Commerce Team
-"""
-                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
 
         # Start consuming events
         try:

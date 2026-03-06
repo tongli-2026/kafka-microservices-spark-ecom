@@ -174,6 +174,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -299,7 +300,7 @@ class SagaHandler:
         # Create outbox event to notify customer of cancellation
         # Include cancellation_source to help downstream services understand WHY it was cancelled
         order_cancelled_event = {
-            "event_id": event.event_id,
+            "event_id": str(uuid4()),  # Generate new unique event_id for this cancellation event
             "event_type": "order.cancelled",
             "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
             "correlation_id": event.correlation_id,
@@ -320,6 +321,7 @@ class SagaHandler:
 
         self.db.commit()
         logger.info(f"Order {event.order_id} cancelled due to inventory depletion or insufficient stock (NO PAYMENT CHARGED)")
+        logger.debug(f"Outbox event created: {json.dumps(order_cancelled_event)}")
 
     def handle_payment_processed(self, event) -> None:
         """Handle payment.processed event - confirms order."""
@@ -374,7 +376,7 @@ class SagaHandler:
         # Create outbox event
         # Include cancellation_source to help downstream services understand WHY it was cancelled
         order_cancelled_event = {
-            "event_id": event.event_id,
+            "event_id": event.event_id,  # Reuse event_id since Notification Service doesn't consume payment.failed
             "event_type": "order.cancelled",
             "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
             "correlation_id": event.correlation_id,
@@ -395,6 +397,7 @@ class SagaHandler:
 
         self.db.commit()
         logger.info(f"Order {event.order_id} cancelled due to payment failure")
+        logger.debug(f"Outbox event created: {json.dumps(order_cancelled_event)}")
 
     def handle_order_fulfilled(self, event) -> None:
         """Handle order.fulfilled event from fulfillment service/job."""
@@ -442,20 +445,24 @@ class OutboxPublisher:
             try:
                 unpublished = repo.get_unpublished_events()
                 
+                if unpublished:
+                    logger.info(f"Found {len(unpublished)} unpublished outbox events")
+                
                 for event in unpublished:
                     try:
                         event_data = json.loads(event.event_data)
+                        logger.info(f"Publishing outbox event: topic={event.event_type}, order_id={event.order_id}, event_id={event_data.get('event_id')}")
                         self.producer.publish(event.event_type, event_data)
                         repo.mark_event_published(event.id)
                         self.db.commit()
-                        logger.info(f"Published outbox event {event.event_type} for order {event.order_id}")
+                        logger.info(f"Successfully published outbox event {event.event_type} for order {event.order_id}")
                     except Exception as e:
-                        logger.error(f"Error publishing outbox event: {e}")
+                        logger.error(f"Error publishing outbox event: {e}", exc_info=True)
 
                 time.sleep(self.poll_interval)
                 
             except Exception as e:
-                logger.error(f"Error in outbox publisher: {e}")
+                logger.error(f"Error in outbox publisher: {e}", exc_info=True)
                 time.sleep(self.poll_interval)
 
     def stop(self) -> None:

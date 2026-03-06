@@ -145,7 +145,7 @@ def get_payment_by_order(self, order_id: str) -> Payment:
 
 **Command**:
 ```bash
-./test-scenarios.sh
+./scripts/test-scenarios.sh
 # Runs Scenario 8: Idempotency Check
 ```
 
@@ -316,7 +316,7 @@ def mark_event_processed(self, event_id: str, event_type: str) -> ProcessedEvent
 
 **Scenario 8 in test-scenarios.sh**:
 ```bash
-./test-scenarios.sh
+./scripts/test-scenarios.sh
 # Runs Scenario 8: Idempotency Check
 ```
 
@@ -388,7 +388,7 @@ All events (including inventory operations) use the Outbox Pattern:
 
 **Scenario 5 in test-scenarios.sh**:
 ```bash
-./test-scenarios.sh
+./scripts/test-scenarios.sh
 # Runs Scenario 5: Multiple Items - tests atomic reservation
 ```
 

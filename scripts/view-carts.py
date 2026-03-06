@@ -1,3 +1,24 @@
+"""
+view-carts.py - Display Active Shopping Carts
+
+PURPOSE:
+    This script queries Redis to display all active shopping carts in the system.
+    Shows user IDs, items in each cart, and TTL (time until cart expires).
+
+USAGE:
+    .venv/bin/python scripts/view-carts.py
+
+REQUIREMENTS:
+    - Redis server running (docker-compose up redis -d)
+    - redis package installed (in .venv)
+
+OUTPUT:
+    Lists all active carts with:
+    - User ID
+    - Items in cart (JSON format)
+    - TTL (seconds remaining before cart expires)
+"""
+
 import redis
 import json
 

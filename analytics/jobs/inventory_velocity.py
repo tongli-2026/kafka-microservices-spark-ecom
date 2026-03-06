@@ -27,7 +27,7 @@ VELOCITY METRICS:
     - Product ranking by sales volume
 
 USAGE:
-    ./run-spark-job.sh inventory_velocity
+    ./scripts/spark/run-spark-job.sh inventory_velocity
 """
 
 import logging

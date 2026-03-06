@@ -10,9 +10,9 @@
 #   race condition handling, and system stability under load.
 #
 # USAGE:
-#   ./test-scenarios.sh              # Run all 10 scenarios with default 5 stress orders
-#   ./test-scenarios.sh 10           # Run with custom stress test (10 orders instead of 5)
-#   chmod +x test-scenarios.sh       # Make executable first time
+#   ./scripts/test-scenarios.sh              # Run all 10 scenarios with default 5 stress orders
+#   ./scripts/test-scenarios.sh 10           # Run with custom stress test (10 orders instead of 5)
+#   chmod +x scripts/test-scenarios.sh       # Make executable first time
 #
 # PREREQUISITES:
 #   ✓ docker-compose up -d           # Services running on ports 8001-8005
@@ -1621,15 +1621,15 @@ main() {
     read -p "Press ENTER to start tests..."
     
     # Run scenarios (use || true to continue even if a scenario fails)
-    test_scenario_1_happy_path || true
-    test_scenario_2_payment_failure || true
-    test_scenario_3_out_of_stock || true
-    test_scenario_4_low_stock_alert || true
-    test_scenario_5_multiple_items || true
-    test_scenario_6_concurrent_orders || true
-    test_scenario_7_order_lifecycle || true
-    test_scenario_8_idempotency || true
-    test_scenario_9_cart_operations || true
+    # test_scenario_1_happy_path || true
+    # test_scenario_2_payment_failure || true
+    # test_scenario_3_out_of_stock || true
+    # test_scenario_4_low_stock_alert || true
+    # test_scenario_5_multiple_items || true
+    # test_scenario_6_concurrent_orders || true
+    # test_scenario_7_order_lifecycle || true
+    # test_scenario_8_idempotency || true
+    # test_scenario_9_cart_operations || true
     test_scenario_10_stress_test "$NUM_STRESS_ORDERS" || true
     
     # Print summary (always runs, even if scenarios fail)

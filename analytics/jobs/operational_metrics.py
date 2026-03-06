@@ -31,7 +31,7 @@ HEALTH CHECKS:
     - Error rate thresholds
 
 USAGE:
-    ./run-spark-job.sh operational_metrics
+    ./scripts/spark/run-spark-job.sh operational_metrics
 """
 
 import logging
