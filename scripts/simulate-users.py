@@ -35,10 +35,20 @@ USAGE:
     # First time: activate virtual environment
     source .venv/bin/activate
     
-    # Then run the simulator
-    ./scripts/simulate-users.py --mode wave --users 10 --abandonment-rate 0.3
+    # Light load (baseline, 5 users per wave)
     ./scripts/simulate-users.py --mode continuous --duration 300 --interval 30
+    
+    # Medium load (20 users per wave, faster intervals)
+    ./scripts/simulate-users.py --mode continuous --duration 300 --interval 15 --users 20
+    
+    # Heavy load (50 users per wave, very fast intervals)
+    ./scripts/simulate-users.py --mode continuous --duration 300 --interval 10 --users 50
+    
+    # Quick single user test
     ./scripts/simulate-users.py --mode single
+    
+    # Abandoned carts test (30% abandonment rate)
+    ./scripts/simulate-users.py --mode wave --users 10 --abandonment-rate 0.3
 
 COMMAND-LINE OPTIONS:
     --mode {single|wave|continuous}
@@ -94,11 +104,34 @@ EXAMPLES:
        ./scripts/simulate-users.py --mode wave --users 10 --abandonment-rate 0.3
        Result: 3 abandoned carts, 7 completed orders
 
-    3. Sustained Load Test - 5 minutes of continuous traffic:
-       ./scripts/simulate-users.py --mode continuous --duration 300 --users 5
-
-    4. Heavy Load - 20 users per wave, 50% abandonment:
+    3. Light Load Test - Baseline performance (5 minutes):
+       ./scripts/simulate-users.py --mode continuous --duration 300 --interval 30 --users 5
+       Result: 50 total users over 5 min (1 wave/30s)
+       Throughput: ~30-40 events/min total, ~5-7 events/min per topic
+       Best for: Baseline metrics and Spark job validation
+    
+    4. Medium Load Test - 4x baseline load (5 minutes):
+       ./scripts/simulate-users.py --mode continuous --duration 300 --interval 15 --users 20
+       Result: 400 total users over 5 min (1 wave/15s)
+       Throughput: ~120-160 events/min total, ~20-27 events/min per topic
+       Best for: Testing with realistic sustained traffic
+    
+    5. Heavy Load Test - 10x baseline load (5 minutes):
+       ./scripts/simulate-users.py --mode continuous --duration 300 --interval 10 --users 50
+       Result: 1500 total users over 5 min (1 wave/10s)
+       Throughput: ~300-400 events/min total, ~50-67 events/min per topic
+       Best for: Stress testing microservices and Kafka cluster
+    
+    6. Stress Test - Maximum load (10 minutes):
+       ./scripts/simulate-users.py --mode continuous --duration 600 --interval 5 --users 100
+       Result: 12000 total users over 10 min (1 wave/5s)
+       Throughput: ~600-800 events/min total, ~100-133 events/min per topic
+       Best for: Finding system breaking points and capacity limits
+    
+    7. Cart Abandonment Testing - 50% abandonment rate (1 wave):
        ./scripts/simulate-users.py --mode wave --users 20 --abandonment-rate 0.5
+       Result: 10 abandoned carts, 10 completed orders
+       Best for: Testing abandoned cart detection in Spark job
 
 IMPORTANT NOTES:
 
