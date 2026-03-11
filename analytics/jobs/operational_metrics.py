@@ -42,19 +42,18 @@ OUTPUT:
 OPERATIONAL METRICS:
     1. THROUGHPUT
        - Total events per topic per minute
-       - Compares to baseline threshold (100 events/min per topic)
+       - Compares to baseline threshold (20 events/min per topic)
        - Status:
-         * HEALTHY: >80 events/min
-         * WARNING: >50 events/min
-         * CRITICAL: ≤50 events/min
-       - Note: Realistic threshold for demo environment with 5-10 concurrent users
+         * HEALTHY: >15 events/min
+         * WARNING: >8 events/min
+         * CRITICAL: ≤8 events/min
+       - Note: Calibrated for light load testing (5 users per wave, 30s intervals)
     
     NOTE: Current implementation focuses on throughput monitoring.
-    Future enhancements could include:
-    - Success rate calculation (requires status field in events)
-    - Latency metrics (requires timestamp information in event payload)
-    - Error rate tracking (requires error flag in events)
-    - Service-level availability tracking
+    For production, calibrate thresholds based on actual user load:
+    - Light load (5-10 users): 15-30 events/min per topic
+    - Medium load (50-100 users): 150-300 events/min per topic  
+    - Heavy load (1000+ users): 1500+ events/min per topic
 
 MONITORING ALGORITHM:
     Event-Based Throughput Monitoring with Health Scoring:
@@ -102,12 +101,13 @@ ALERTING THRESHOLDS:
     - Service unavailable > 30 seconds: CRITICAL alert
 
 PERFORMANCE:
-    - Kafka Throughput: 100+ events/minute per topic (baseline for healthy system)
+    - Kafka Throughput: 20+ events/minute per topic (baseline for healthy system at light load)
     - Processing Mode: Micro-batch (foreachBatch)
     - Output Mode: Append (only new metrics)
     - Fault Tolerance: Checkpointing at /opt/spark-data/checkpoints/operational_metrics
     - Checkpoint Configuration: Via CHECKPOINT_PATH environment variable (default: /opt/spark-data/checkpoints/operational_metrics)
     - Latency: ~10 seconds end-to-end (includes processing trigger + database write)
+    - Test Command: ./scripts/simulate-users.py --mode continuous --duration 300 --interval 30
 
 USAGE:
     ./scripts/spark/run-spark-job.sh operational_metrics
@@ -192,9 +192,9 @@ def operational_metrics():
             col("window.end").alias("window_end"),
             lit("throughput").alias("metric_name"),
             col("event_count").alias("metric_value"),
-            lit(100).alias("threshold"),  # Expected ~100 events/min per topic (realistic for demo)
-            when(col("event_count") > 80, "HEALTHY")
-                .when(col("event_count") > 50, "WARNING")
+            lit(20).alias("threshold"),  # Expected ~20 events/min per topic (realistic for light load testing)
+            when(col("event_count") > 15, "HEALTHY")
+                .when(col("event_count") > 8, "WARNING")
                 .otherwise("CRITICAL").alias("status"),
             to_json(struct(
                 col("topic").alias("topic_monitored"),
