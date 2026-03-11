@@ -208,6 +208,7 @@ import time
 import random
 import logging
 import sys
+import threading
 from datetime import datetime
 from typing import List, Dict
 
@@ -443,17 +444,32 @@ class LoadSimulator:
         self.users = [UserSimulator(f"user_{i:03d}") for i in range(num_users)]
     
     def simulate_wave(self):
-        """Simulate a wave of users (all concurrently for ~5 seconds)."""
+        """Simulate a wave of users (all concurrently)."""
         logger.info(f"🌊 Simulating {self.num_users} concurrent users...")
         if self.abandon_probability > 0:
             logger.info(f"   Abandonment rate: {self.abandon_probability*100:.0f}%")
         
-        for i, user in enumerate(self.users):
-            # Start each user with slight delay
-            user.run_complete_journey(abandon_probability=self.abandon_probability)
-            time.sleep(0.2)  # 200ms delay between user starts
+        # Create threads for each user
+        threads = []
+        for user in self.users:
+            thread = threading.Thread(
+                target=user.run_complete_journey,
+                args=(self.abandon_probability,),
+                daemon=True
+            )
+            threads.append(thread)
         
-        logger.info(f"✅ Wave complete")
+        # Start all threads at roughly the same time (concurrent execution)
+        start_time = time.time()
+        for thread in threads:
+            thread.start()
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"✅ Wave complete ({elapsed_time:.1f}s elapsed, {self.num_users} users concurrent)")
     
     def simulate_continuous(self, duration_seconds: int = 300, wave_interval: int = 30):
         """Simulate continuous user traffic for specified duration."""
