@@ -271,6 +271,7 @@ Kafka E-Commerce Team
                 
                 notification_event = NotificationSendEvent(
                     event_id=event.event_id,
+                    correlation_id=event.correlation_id,
                     user_id=getattr(event, 'user_id', 'unknown'),
                     recipient_email=final_recipient,
                     notification_type=event.event_type,
