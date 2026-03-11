@@ -772,14 +772,14 @@ test_scenario_6_concurrent_orders() {
     # With exact stock quantity, exactly ONE should succeed and ONE should fail
     local success_count=0
     local fail_count=0
-    [[ "$order1_status" == "PAID" ]] && success_count=$((success_count + 1))
-    [[ "$order2_status" == "PAID" ]] && success_count=$((success_count + 1))
+    [[ "$order1_status" == "PAID" ]] || [[ "$order1_status" == "FULFILLED" ]] && success_count=$((success_count + 1))
+    [[ "$order2_status" == "PAID" ]] || [[ "$order2_status" == "FULFILLED" ]] && success_count=$((success_count + 1))
     [[ "$order1_status" == "CANCELLED" ]] && fail_count=$((fail_count + 1))
     [[ "$order2_status" == "CANCELLED" ]] && fail_count=$((fail_count + 1))
     
     if [ $success_count -eq 1 ] && [ $fail_count -eq 1 ]; then
         print_success "Exactly one order succeeded, one failed - Race condition handled correctly ✓"
-        print_info "Winner: $([ "$order1_status" == "PAID" ] && echo "User 1" || echo "User 2")"
+        print_info "Winner: $([ "$order1_status" == "PAID" ] || [ "$order1_status" == "FULFILLED" ] && echo "User 1" || echo "User 2")"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         print_success "SCENARIO 6 PASSED: Concurrent orders with proper locking"
     else
@@ -1621,15 +1621,15 @@ main() {
     read -p "Press ENTER to start tests..."
     
     # Run scenarios (use || true to continue even if a scenario fails)
-    # test_scenario_1_happy_path || true
-    # test_scenario_2_payment_failure || true
-    # test_scenario_3_out_of_stock || true
-    # test_scenario_4_low_stock_alert || true
-    # test_scenario_5_multiple_items || true
-    # test_scenario_6_concurrent_orders || true
-    # test_scenario_7_order_lifecycle || true
-    # test_scenario_8_idempotency || true
-    # test_scenario_9_cart_operations || true
+    test_scenario_1_happy_path || true
+    test_scenario_2_payment_failure || true
+    test_scenario_3_out_of_stock || true
+    test_scenario_4_low_stock_alert || true
+    test_scenario_5_multiple_items || true
+    test_scenario_6_concurrent_orders || true
+    test_scenario_7_order_lifecycle || true
+    test_scenario_8_idempotency || true
+    test_scenario_9_cart_operations || true
     test_scenario_10_stress_test "$NUM_STRESS_ORDERS" || true
     
     # Print summary (always runs, even if scenarios fail)

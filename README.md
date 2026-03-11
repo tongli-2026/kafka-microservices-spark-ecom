@@ -208,11 +208,13 @@ open http://localhost:8025
 
 ### 4. Run Spark Analytics Jobs
 
-```bash
-# Submit a streaming job to the Spark cluster
-./run-spark-job.sh revenue_streaming
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
 
-# Or run manually
+```bash
+# Submit a streaming job to the Spark cluster (using helper script - RECOMMENDED)
+./scripts/spark/run-spark-job.sh revenue_streaming
+
+# Or run manually from project root
 docker exec spark-worker-1 /opt/spark/bin/spark-submit \
   --master spark://spark-master:7077 \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
@@ -458,6 +460,8 @@ SELECT * FROM orders;  # Query orders
 ```
 
 ### Clean Up Database & Kafka
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
 
 Two helper scripts are provided:
 
@@ -1008,25 +1012,52 @@ Each service implements **exponential backoff**:
 
 #### How to Investigate DLQ Messages
 
-**1. View DLQ messages in Kafka UI:**
+**1. View DLQ messages in Kafka UI (Easiest):**
 ```
 http://localhost:8080 → Topics → dlq.events → View messages
 ```
 
 **2. Check service logs:**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
 docker-compose logs order-service | grep "DLQ"
 docker-compose logs payment-service | grep "ERROR"
 ```
 
-**3. Consume DLQ messages:**
+**3. Consume DLQ messages from CLI:**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
+# Quick check: View last 10 DLQ messages and exit automatically
+# (RECOMMENDED for quick diagnostics)
+docker-compose exec kafka-broker-1 \
+  /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka-broker-1:9092 \
+  --topic dlq.events \
+  --from-beginning \
+  --max-messages 10
+```
+
+**What to expect:**
+- ✅ **Messages appear**: DLQ has failed events (review and fix them)
+- ❌ **Nothing appears**: No DLQ events yet (system is healthy so far)
+- Command exits automatically after 10 messages
+
+**Advanced: Continuous monitoring (waits for new messages)**
+```bash
+# Enter monitoring mode - shows all past messages, then waits for new ones
+# (Press Ctrl+C to exit)
 docker-compose exec kafka-broker-1 \
   /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server kafka-broker-1:9092 \
   --topic dlq.events \
   --from-beginning
 ```
+
+**Note**: Use `--bootstrap-server` (singular), not `--bootstrap-servers` (plural)
 
 #### Handling DLQ Messages
 
@@ -1187,28 +1218,121 @@ docker-compose logs spark-master
 docker-compose logs kafka-broker-1 | grep "started"
 ```
 
-### Spark cluster issues
+### Spark Job Issues
+
+**ModuleNotFoundError: No module named 'spark_session'**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
+```bash
+# ❌ Problem: Running jobs directly from analytics/jobs/ directory
+.venv/bin/python analytics/jobs/cart_abandonment.py
+# Result: ModuleNotFoundError: No module named 'spark_session'
+
+# ✓ Solution 1: Run from project root with proper path
+cd /Users/tong/KafkaProjects/kafka-microservices-spark-ecom
+.venv/bin/python -c "import sys; sys.path.insert(0, 'analytics'); from analytics.jobs.cart_abandonment import cart_abandonment; cart_abandonment()"
+
+# ✓ Solution 2: Use the helper script (RECOMMENDED)
+./scripts/spark/run-spark-job.sh cart_abandonment
+```
+
+**Permission denied: ./scripts/spark/run-spark-job.sh**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
+```bash
+# ❌ Problem: Scripts don't have execute permission
+./scripts/spark/run-spark-job.sh cart_abandonment
+# Result: zsh: permission denied: ./scripts/spark/run-spark-job.sh
+
+# ✓ Solution: Make all scripts executable
+chmod +x scripts/*.sh
+chmod +x scripts/spark/*.sh
+
+# Verify permission is set correctly
+ls -la scripts/spark/run-spark-job.sh
+# Should show: -rwxr-xr-x (with x for execute)
+```
+
+**Spark job runs but no output**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
+```bash
+# Check if Kafka topics have data
+# (Run from project root)
+docker-compose exec kafka-broker-1 kafka-console-consumer.sh \
+  --bootstrap-servers localhost:9092 \
+  --topic cart.item_added \
+  --from-beginning \
+  --max-messages 5
+
+# Check PostgreSQL for results (Run from project root)
+docker-compose exec postgres psql -U postgres -d kafka_ecom \
+  -c "SELECT COUNT(*) FROM cart_abandonment;"
+
+# Monitor Spark job (Open in browser)
+open http://localhost:4040/
+
+# Check Spark Master logs (Run from project root)
+docker-compose logs spark-master
+```
+
+**Port already in use (Spark UI port 4040)**
+```bash
+# If port 4040 is busy, Spark will use 4041, 4042, etc.
+# Check Spark UI on: http://localhost:4040 (or 4041, 4042...)
+
+# Or kill existing Spark process
+pkill -f "org.apache.spark"
+```
+
+### Spark Jobs Directory Structure
+
+```
+analytics/
+├── spark_session.py           # Shared session factory
+├── jobs/
+│   ├── cart_abandonment.py   # Abandoned cart detection
+│   ├── fraud_detection.py     # Fraud pattern detection
+│   ├── operational_metrics.py # System health metrics
+│   ├── inventory_velocity.py  # Product sales velocity
+│   └── revenue_streaming.py   # Real-time revenue tracking
+└── scripts/
+    └── run-spark-job.sh       # Helper to run jobs
+```
+
+**Important**: All jobs must be run from project root, not from `analytics/jobs/` directory.
+
+### Spark Cluster Issues
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
 # Check Spark Master is running
-docker logs spark-master
+docker-compose logs spark-master
 
-# Check workers are connected
+# Check workers are connected (Open in browser)
 open http://localhost:9080  # Should show 2 workers
 
 # Verify worker resources
-docker logs spark-worker-1
-docker logs spark-worker-2
+docker-compose logs spark-worker-1
+docker-compose logs spark-worker-2
 
-# Submit test job
+# Submit test job (from project root)
 ./scripts/spark/run-spark-job.sh revenue_streaming
 ```
 
 ### Database connection errors
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
 # Verify PostgreSQL is running
 docker-compose exec postgres pg_isready
 
-# Check database exists
+# Check database exists (Run from project root)
 docker-compose exec postgres psql -U postgres -c "\\l"
 ```
 
@@ -1315,12 +1439,18 @@ Total Cluster Resources:
 
 ### Submitting Jobs
 
-**Using Helper Script** (Recommended):
+**Using Helper Script** (RECOMMENDED)
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
-./scripts/run-spark-job.sh revenue_streaming
+./scripts/spark/run-spark-job.sh revenue_streaming
 ```
 
-**Manual Submission**:
+**Manual Submission**
+
+**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
+
 ```bash
 docker exec spark-worker-1 /opt/spark/bin/spark-submit \
   --master spark://spark-master:7077 \

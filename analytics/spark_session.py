@@ -109,6 +109,8 @@ def get_kafka_options() -> dict:
             "KAFKA_BOOTSTRAP_SERVERS",
             "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
         ),
+        # Read from the earliest offset if no checkpoint exists, otherwise resume from last checkpoint
         "startingOffsets": "earliest",
+        # Prevent data loss on failures by allowing Spark to resume from last checkpoint instead of failing
         "failOnDataLoss": "false",
     }

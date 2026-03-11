@@ -9,10 +9,25 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
     kafka-python==2.0.2 \
     psycopg2-binary==2.9.9
 
-# Create .ivy2 cache directory and set permissions
+# Create .ivy2 cache directory and pre-cache required Hadoop jars
 RUN mkdir -p /home/spark/.ivy2/cache && \
     mkdir -p /home/spark/.ivy2/jars && \
     chown -R spark:spark /home/spark/.ivy2
+
+# Pre-download and cache Hadoop jars to avoid Maven timeout issues
+USER spark
+RUN mkdir -p /tmp/jar_cache && \
+    cd /tmp/jar_cache && \
+    wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client-runtime/3.3.4/hadoop-client-runtime-3.3.4.jar && \
+    wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client-api/3.3.4/hadoop-client-api-3.3.4.jar && \
+    wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-hdfs-client/3.3.4/hadoop-hdfs-client-3.3.4.jar && \
+    wget -q https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-mapreduce-client-core/3.3.4/hadoop-mapreduce-client-core-3.3.4.jar && \
+    mkdir -p /home/spark/.ivy2/cache/org.apache.hadoop/hadoop-client-runtime_2.12/jars && \
+    mkdir -p /home/spark/.ivy2/cache/org.apache.hadoop/hadoop-client-api_2.12/jars && \
+    mkdir -p /home/spark/.ivy2/cache/org.apache.hadoop/hadoop-hdfs-client_2.12/jars && \
+    mkdir -p /home/spark/.ivy2/cache/org.apache.hadoop/hadoop-mapreduce-client-core_2.12/jars && \
+    cp /tmp/jar_cache/*.jar /home/spark/.ivy2/jars/ 2>/dev/null || true && \
+    rm -rf /tmp/jar_cache
 
 # Switch back to spark user
 USER spark

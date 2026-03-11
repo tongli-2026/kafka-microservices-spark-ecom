@@ -15,7 +15,7 @@
 #   8. View results in PostgreSQL
 #
 # USAGE:
-#   ./test-complete-workflow.sh
+#   ./scripts/test-complete-workflow.sh
 #
 #   This ONE command will:
 #   - ✅ Automain() {
@@ -243,27 +243,19 @@ test_3_create_order() {
     print_step "Generating test orders to populate analytics..."
     ((TOTAL_TESTS++))
     
-    # Use the existing generate-orders.sh script to create orders
-    if [ -f "./generate-orders.sh" ]; then
-        print_info "Using generate-orders.sh to create test data..."
-        # Run in non-interactive mode with echo
-        echo "10" | ./generate-orders.sh > /dev/null 2>&1 &
-        GEN_PID=$!
-        
-        # Wait for generation to start
-        sleep 3
-        
-        if ps -p $GEN_PID > /dev/null 2>&1; then
-            print_success "Generating 10 test orders (PID: $GEN_PID)"
-            print_info "This populates: payment.processed, order.created, inventory.reserved events"
-        else
-            print_info "Order generation started"
-        fi
-    else
-        print_info "generate-orders.sh not found - using existing test data"
+    print_info "Using simulate-users.py to create test data..."
+    print_info "This populates: payment.processed, order.created, inventory.reserved events"
+    
+    # Activate virtual environment if it exists
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
     fi
     
-    wait_for_event 5
+    # Run simulate-users.py in wave mode with no abandonment
+    ./scripts/simulate-users.py --mode wave --users 10 --abandonment-rate 0.0 > /dev/null 2>&1 &
+    SIM_PID=$!
+    
+    print_success "User simulator started (PID: $SIM_PID)"
 }
 
 test_4_payment_processing() {
@@ -314,14 +306,16 @@ test_6_email_notifications() {
     # Check Docker logs for email notifications
     LOGS=$(docker logs notification-service --tail 20 2>&1)
     
-    if echo "$LOGS" | grep -q "order.confirmed\|payment.processed"; then
+    # Check for any of the 5 events the notification service consumes:
+    # order.confirmed, order.fulfilled, order.cancelled, inventory.low, inventory.depleted
+    if echo "$LOGS" | grep -q "order.confirmed\|order.fulfilled\|order.cancelled\|inventory.low\|inventory.depleted"; then
         print_success "Notification service processing events"
         
         if echo "$LOGS" | grep -q "Email sent"; then
-            print_success "Order confirmation email sent"
-            print_info "Email: $USER_ID@test.com"
+            print_success "Email notifications sent"
+            print_info "Notifications: order events & inventory alerts"
         else
-            print_info "Email queued (SMTP simulation)"
+            print_info "Email events logged (SMTP simulation)"
         fi
     else
         print_error "No notification events detected"
@@ -674,6 +668,9 @@ main() {
     # Final summary
     print_header "Test Summary"
     
+    # Calculate total as sum of passed and failed
+    TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
+    
     echo -e "${CYAN}Total Tests: $TOTAL_TESTS${NC}"
     echo -e "${GREEN}Passed: $PASSED_TESTS${NC}"
     echo -e "${RED}Failed: $FAILED_TESTS${NC}"
@@ -704,7 +701,7 @@ main() {
         echo ""
         echo -e "${YELLOW}Next Steps:${NC}"
         echo "  1. View Spark Master UI to check job status and metrics"
-        echo "  2. Run: ./generate-orders.sh to create more test data"
+        echo "  2. Run: ./scripts/simulate-users.py --mode wave --users 10 to create more test data"
         echo "  3. Check PostgreSQL analytics tables with pgAdmin"
         echo "  4. Monitor logs: tail -f /tmp/spark-*.log"
         echo ""

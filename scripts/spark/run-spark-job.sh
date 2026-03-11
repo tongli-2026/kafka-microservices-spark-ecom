@@ -11,12 +11,25 @@
 # USAGE:
 #   ./run-spark-job.sh <job_name>
 #
+# AVAILABLE JOBS:
+#   1. fraud_detection       - Real-time fraud pattern detection (10-second micro-batches)
+#   2. revenue_streaming     - Aggregated revenue metrics per product (1-minute windows)
+#   3. cart_abandonment      - Identify abandoned shopping carts (5-minute windows)
+#   4. inventory_velocity    - Product sales velocity rankings (hourly batch, via cron)
+#   5. operational_metrics   - System health and performance metrics (10-second intervals)
+#
 # EXAMPLES:
-#   ./run-spark-job.sh revenue_streaming
 #   ./run-spark-job.sh fraud_detection
+#   ./run-spark-job.sh revenue_streaming
 #   ./run-spark-job.sh cart_abandonment
 #   ./run-spark-job.sh inventory_velocity
 #   ./run-spark-job.sh operational_metrics
+#
+# NOTES:
+#   - Most jobs run continuously (streaming)
+#   - inventory_velocity runs as scheduled batch job (see INVENTORY_VELOCITY_SCHEDULER.md)
+#   - All jobs log to Spark UI: http://localhost:4040 (while running)
+#   - Checkpoint data saved to /opt/spark-data/checkpoints/
 #
 # WHAT IT DOES:
 #   1. Validates job name parameter
@@ -105,7 +118,7 @@ echo ""
 echo -e "${BLUE}Starting job submission...${NC}"
 echo ""
 
-# Submit Spark job with correct PYTHONPATH and resource allocation
+# Submit Spark job
 docker exec spark-worker-1 bash -c "
   cd /opt/spark-apps && \
   export PYTHONPATH=/opt/spark-apps:\$PYTHONPATH && \
@@ -119,6 +132,7 @@ docker exec spark-worker-1 bash -c "
     --conf spark.driver.host=0.0.0.0 \
     --conf spark.ui.hostname=0.0.0.0 \
     --conf spark.sql.streaming.checkpointLocation=/opt/spark-data/checkpoints/${JOB_NAME} \
+    --repositories https://repo.maven.apache.org/maven2/ \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1 \
     --py-files /opt/spark-apps/spark_session.py \
     ${JOB_FILE}

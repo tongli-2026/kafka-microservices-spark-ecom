@@ -15,19 +15,17 @@ BUSINESS VALUE:
 
 KAFKA TOPICS CONSUMED:
     - cart.item_added: Event when user adds item to shopping cart
-      Schema: {user_id, product_id, quantity, price, timestamp}
+      Schema: {user_id, product_id, timestamp}
       
     - cart.checkout_initiated: Event when user starts checkout process
-      Schema: {user_id, cart_total, timestamp}
+      Schema: {user_id, timestamp}
 
 OUTPUT:
     PostgreSQL table: cart_abandonment
     Schema:
       - user_id: User who abandoned cart
       - product_id: Product in abandoned cart
-      - item_added_time: When item was added
-      - abandonment_detected_at: When abandonment was detected
-      - time_to_abandon: Seconds between add and abandonment
+      - item_added_time: When item was added (timestamp)
 
 ALGORITHM:
     Stream-Stream Left Join with Watermarking:
@@ -37,7 +35,7 @@ ALGORITHM:
     3. JOIN CONDITION:
        - Same user_id
        - Checkout happens after item add
-       - Checkout happens within 30-minute window
+       - Checkout happens within a specific time window (e.g. 30 minutes)
     4. FILTER: Keep only rows where checkout_user_id IS NULL
        (means no matching checkout = abandoned)
     
@@ -50,24 +48,22 @@ ALGORITHM:
     └─────────────────────────────────────┘
 
 WATERMARKING:
-    - Item Added Watermark: 30 minutes
-      Allows late item additions up to 30 minutes after event time
-    - Checkout Watermark: 30 minutes
-      Allows late checkout events up to 30 minutes after event time
-    - Join Window: 30 minutes after item add
-      Checkout must occur within 30 minutes to be considered (not abandoned)
+    - Item Added Watermark: 30 seconds (optimized for faster detection)
+      Allows late item additions up to 30 seconds after event time
+    - Checkout Watermark: 30 seconds (optimized for faster detection)
+      Allows late checkout events up to 30 seconds after event time
+    - Join Window: 1 minute after item add
+      Checkout must occur within 1 minute to be considered (not abandoned)
 
 PERFORMANCE:
     - Kafka Max Rate: 10,000 events/partition/second
     - Processing Mode: Micro-batch (foreachBatch)
     - Output Mode: Append (only new abandoned records)
-    - Fault Tolerance: Checkpointing at /tmp/checkpoints/cart-abandonment
+    - Fault Tolerance: Checkpointing at /opt/spark-data/checkpoints/cart_abandonment
+    - Checkpoint Configuration: Via CHECKPOINT_PATH environment variable (default: /opt/spark-data/checkpoints/cart_abandonment)
 
 USAGE:
-    .venv/bin/python analytics/jobs/cart_abandonment.py
-    
-    Or via script:
-    ./scripts/spark/run-spark-job.sh cart_abandonment
+   ./scripts/spark/run-spark-job.sh cart_abandonment
 
 DEPENDENCIES:
     - Apache Kafka (3+ brokers)
@@ -77,7 +73,7 @@ DEPENDENCIES:
 
 MONITORING:
     Check Spark UI: http://localhost:4040/
-    Check checkpoint: ls -la /tmp/checkpoints/cart-abandonment/
+    Check checkpoint: ls -la /opt/spark-data/checkpoints/cart_abandonment/ (or set CHECKPOINT_PATH env var)
     Query results: SELECT * FROM cart_abandonment;
 """
 
@@ -86,12 +82,17 @@ import os
 
 # Spark SQL functions for stream processing
 from pyspark.sql.functions import (
-    col, from_json, window, count, to_timestamp, expr
+    col, from_json, window, count, to_timestamp, expr, current_timestamp
 )
 # Spark data types for defining schemas
 from pyspark.sql.types import StructType, StructField, StringType, LongType
 
 # Import shared Spark configuration
+# Note: spark_session.py is in parent directory (analytics/)
+import sys
+from pathlib import Path
+# Add analytics directory to path (parent of jobs directory)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from spark_session import get_spark_session, get_kafka_options
 
 logging.basicConfig(level=logging.INFO)
@@ -110,13 +111,13 @@ def cart_abandonment():
     Cart Abandonment Detection Job
     
     Consumes two Kafka streams and performs a stream-stream left join to identify
-    users who added items to cart but never initiated checkout within 30 minutes.
+    users who added items to cart but never initiated checkout within 1 minute.
     
     PROCESS FLOW:
     1. Read cart.item_added stream (left: all item additions)
     2. Read cart.checkout_initiated stream (right: completed checkouts)
-    3. Apply watermarks to both streams (30 minutes for late data)
-    4. Join on user_id with time constraint (30-minute window)
+    3. Apply watermarks to both streams (30 seconds for late data)
+    4. Join on user_id with time constraint (1-minute window)
     5. Filter for NULL checkout (no matching checkout found = abandoned)
     6. Write abandoned carts to PostgreSQL
     
@@ -189,8 +190,9 @@ def cart_abandonment():
     # Apply watermarks to handle late-arriving data
     # Watermark allows events to arrive up to 30 minutes late before being dropped
     # This is important in case events arrive out of order from Kafka
-    items_with_wm = parsed_items.withWatermark("item_added_time", "30 minutes")
-    checkout_with_wm = parsed_checkout.withWatermark("checkout_time", "30 minutes")
+    # NOTE: For testing/development, using 30 seconds instead of 1 minute for faster results
+    items_with_wm = parsed_items.withWatermark("item_added_time", "30 seconds")
+    checkout_with_wm = parsed_checkout.withWatermark("checkout_time", "30 seconds")
 
     # Stream-stream left join to identify abandoned carts
     # LEFT JOIN: Keep all item additions, even if no matching checkout
@@ -203,13 +205,14 @@ def cart_abandonment():
         checkout_with_wm,
         (col("user_id") == col("checkout_user_id")) &
         (col("checkout_time") >= col("item_added_time")) &
-        (col("checkout_time") <= expr("item_added_time + INTERVAL 30 MINUTES")),
+        (col("checkout_time") <= expr("item_added_time + INTERVAL 1 MINUTES")),
         "leftOuter"
     ).filter(col("checkout_user_id").isNull()) \
     .select(
         col("user_id"),
         col("product_id"),
-        col("item_added_time")
+        col("item_added_time"),
+        current_timestamp().alias("detected_at")
     )
 
     # Write abandoned carts to PostgreSQL using foreachBatch
@@ -244,14 +247,18 @@ def cart_abandonment():
     # foreachBatch: Call foreach_batch_function for each micro-batch
     # outputMode: append - only output new abandoned carts (not stateful)
     # checkpointLocation: Save progress for fault tolerance and recovery
+    # trigger: Process data more frequently for faster results (10 seconds for testing)
     # awaitTermination: Block until streaming job stops or encounters error
     logger.info("Starting streaming query for cart abandonment detection...")
+    
+    checkpoint_path = os.getenv("CHECKPOINT_PATH", "/opt/spark-data/checkpoints/cart_abandonment")
     
     abandoned \
         .writeStream \
         .foreachBatch(foreach_batch_function) \
         .outputMode("append") \
-        .option("checkpointLocation", "/tmp/checkpoints/cart-abandonment") \
+        .option("checkpointLocation", checkpoint_path) \
+        .trigger(processingTime="10 seconds") \
         .start() \
         .awaitTermination()
     

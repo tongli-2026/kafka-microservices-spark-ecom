@@ -155,3 +155,67 @@ docker-compose up -d
 - All Python scripts should be run with `.venv/bin/python` or activate the venv first
 - All shell scripts should be run from the project root directory
 - Database scripts may require confirmation before executing destructive operations
+- For Spark jobs, use helper scripts in `scripts/spark/` rather than running job files directly
+
+## Best Practices
+
+### 1. Always Run from Project Root
+```bash
+# ✓ Correct
+cd /Users/tong/KafkaProjects/kafka-microservices-spark-ecom
+./scripts/test-scenarios.sh
+
+# ❌ Wrong - changes will fail
+cd scripts
+./test-scenarios.sh
+```
+
+### 2. Use Virtual Environment
+```bash
+# ✓ Correct
+source .venv/bin/activate
+python scripts/simulate-users.py --mode single
+
+# Or without activation
+.venv/bin/python scripts/simulate-users.py --mode single
+
+# ❌ Wrong - may use wrong Python version
+python scripts/simulate-users.py --mode single
+```
+
+### 3. Run Spark Jobs via Helper Script
+```bash
+# ✓ Correct - uses helper script
+./scripts/spark/run-spark-job.sh cart_abandonment
+
+# ❌ Wrong - import path issues
+.venv/bin/python analytics/jobs/cart_abandonment.py
+
+# ⚠️ Problematic - must be from project root
+cd analytics/jobs
+python cart_abandonment.py  # ModuleNotFoundError!
+```
+
+### 4. Grant Permissions First
+```bash
+# Make all scripts executable once
+chmod +x scripts/*.sh
+chmod +x scripts/spark/*.sh
+
+# Verify
+ls -la scripts/spark/
+# Should show: -rwxr-xr-x (rwx = read, write, execute)
+```
+
+### 5. Monitor Running Jobs
+```bash
+# For Spark jobs
+open http://localhost:4040/  # Spark UI
+
+# For Kafka/Postgres flow
+docker-compose logs -f order-service
+docker-compose logs -f notification-service
+
+# For specific service
+docker-compose logs notification-service | grep -i cancelled
+```

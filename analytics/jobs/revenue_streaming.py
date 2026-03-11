@@ -1,23 +1,78 @@
 """
-Revenue Streaming Analytics Job
+revenue_streaming.py - Real-Time Revenue Analytics
 
-Purpose:
-    This Spark Structured Streaming job processes payment events from Kafka in real-time
-    and aggregates revenue metrics into 1-minute windows. It demonstrates:
-    - Real-time stream processing from Kafka
-    - Time-based windowing aggregations
-    - Continuous writes to PostgreSQL
+PURPOSE:
+    Aggregates payment events from Kafka in real-time to compute revenue metrics
+    across configurable time windows, enabling live business intelligence and
+    revenue monitoring dashboards.
+
+BUSINESS VALUE:
+    - Real-time revenue tracking (update every 10 seconds)
+    - Hourly/daily revenue aggregations
+    - Order volume and average order value metrics
+    - Detect revenue anomalies or drops immediately
+    - Support live dashboards and alerts
+
+KAFKA TOPICS CONSUMED:
+    - payment.processed: Successful payment transaction events
+      Schema: {order_id, user_id, amount, timestamp}
+
+OUTPUT:
+    PostgreSQL table: revenue_metrics
+    Schema:
+      - window_start: Start of aggregation window
+      - window_end: End of aggregation window
+      - total_revenue: Sum of all payment amounts in window
+      - order_count: Number of successful payments in window
+      - avg_order_value: Average payment amount in window
+
+ALGORITHM:
+    Time-Series Aggregation with Windowing:
     
-Data Flow:
-    Kafka (payment.processed) → Spark Streaming → PostgreSQL (revenue_metrics)
+    1. STREAM INPUT: payment.processed events (all successful payments)
+    2. TIMESTAMP: Extract event timestamp for windowing
+    3. WINDOW: Aggregate into configurable time windows (default: 1 minute)
+    4. AGGREGATION:
+       - SUM(amount) → total_revenue
+       - COUNT(*) → order_count
+       - AVG(amount) → avg_order_value
+    5. OUTPUT: Write window results to PostgreSQL
     
-Output Metrics (per 1-minute window):
-    - total_revenue: Sum of all payment amounts
-    - order_count: Number of successful payments
-    - avg_order_value: Average payment amount
-    
-Usage:
-    spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 revenue_streaming.py
+    Example Timeline:
+    ┌─────────────────────────────────────┐
+    │ T=0:00-1:00   Collect 150 payments  │
+    │ T=1:00        Aggregated results:   │
+    │               - Revenue: $45,234.50 │
+    │               - Orders: 150         │
+    │               - Avg Order: $301.56  │ ← Written to DB
+    └─────────────────────────────────────┘
+
+WINDOWING:
+    - Window Duration: 1 minute (configurable)
+    - Window Type: Tumbling (non-overlapping)
+    - Watermark: 10 seconds for late data
+    - Trigger: Process every 10 seconds
+
+PERFORMANCE:
+    - Kafka Max Rate: 10,000 events/partition/second
+    - Processing Mode: Micro-batch (foreachBatch)
+    - Output Mode: Append (only new window results)
+    - Fault Tolerance: Checkpointing at /opt/spark-data/checkpoints/revenue_streaming
+    - Checkpoint Configuration: Via CHECKPOINT_PATH environment variable (default: /opt/spark-data/checkpoints/revenue_streaming)
+
+USAGE:
+    ./scripts/spark/run-spark-job.sh revenue_streaming
+
+DEPENDENCIES:
+    - Apache Kafka (3+ brokers)
+    - Apache Spark 3.5.0+
+    - PostgreSQL 12+
+    - spark-sql-kafka-0-10 JAR (included in spark_session.py)
+
+MONITORING:
+    Check Spark UI: http://localhost:4040/
+    Check checkpoint: ls -la /opt/spark-data/checkpoints/revenue_streaming/ (or set CHECKPOINT_PATH env var)
+    Query results: SELECT * FROM revenue_metrics LIMIT 5;
 """
 
 import json
@@ -33,11 +88,16 @@ from pyspark.sql.functions import (
     sum,           # Sum aggregation
     count,         # Count aggregation
     avg,           # Average aggregation
-    to_timestamp   # Convert string timestamps to timestamp type
+    to_timestamp,  # Convert string timestamps to timestamp type
+    current_timestamp  # Get current server timestamp
 )
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType
 
 # Import custom Spark session utilities
+# Note: spark_session.py is in parent directory (analytics/)
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from spark_session import get_spark_session, get_kafka_options
 
 # Configure logging to track job execution
@@ -53,37 +113,6 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")  # Database passw
 POSTGRES_DB = os.getenv("POSTGRES_DB", "kafka_ecom")        # Database name
 
 
-def write_to_postgres(df, table_name: str, mode: str = "append"):
-    """
-    Write a Spark DataFrame to PostgreSQL database.
-    
-    Args:
-        df: Spark DataFrame to write
-        table_name: Target PostgreSQL table name
-        mode: Write mode - "append" (add rows) or "overwrite" (replace table)
-        
-    Note:
-        Uses JDBC driver to connect to PostgreSQL
-    """
-    try:
-        # Construct PostgreSQL JDBC connection URL
-        url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-        
-        # Write DataFrame to PostgreSQL using JDBC
-        df.write \
-            .format("jdbc") \
-            .mode(mode) \
-            .option("url", url) \
-            .option("dbtable", table_name) \
-            .option("user", POSTGRES_USER) \
-            .option("password", POSTGRES_PASSWORD) \
-            .option("driver", "org.postgresql.Driver") \
-            .save()
-        logger.info(f"Data written to {table_name}")
-    except Exception as e:
-        logger.error(f"Error writing to {table_name}: {e}")
-
-
 def revenue_streaming():
     """
     Main revenue streaming analytics function.
@@ -92,7 +121,7 @@ def revenue_streaming():
     1. Connects to Kafka and reads payment.processed events
     2. Parses JSON payment data
     3. Groups payments into 1-minute tumbling windows
-    4. Calculates revenue aggregations (total, count, average)
+    4. Calculates revenue aggregations (total_revenue, order_count, avg_order_value)
     5. Writes results to PostgreSQL revenue_metrics table
     6. Runs continuously until terminated
     
@@ -100,7 +129,7 @@ def revenue_streaming():
         - Window Size: 1 minute (tumbling window)
         - Watermark: 10 seconds (handles late data)
         - Output Mode: Append (only new complete windows)
-        - Checkpoint: /tmp/checkpoints/revenue-streaming
+        - Checkpoint: Configured via CHECKPOINT_PATH env var (default: /opt/spark-data/checkpoints/revenue_streaming)
     """
     logger.info("Starting revenue streaming job...")
     
@@ -154,7 +183,8 @@ def revenue_streaming():
             col("window.end").alias("window_end"),       # Window end time
             "total_revenue",
             "order_count",
-            "avg_order_value"
+            "avg_order_value",
+            current_timestamp().alias("created_at")
         )
 
     # Step 5: Write results to PostgreSQL
@@ -182,11 +212,13 @@ def revenue_streaming():
 
     # Step 6: Start the streaming query
     # This will continuously process data and call foreach_batch_function for each batch
+    checkpoint_path = os.getenv("CHECKPOINT_PATH", "/opt/spark-data/checkpoints/revenue_streaming")
+    
     windowed_df \
         .writeStream \
         .foreachBatch(foreach_batch_function) \
         .outputMode("append") \
-        .option("checkpointLocation", "/tmp/checkpoints/revenue-streaming") \
+        .option("checkpointLocation", checkpoint_path) \
         .start() \
         .awaitTermination()
 

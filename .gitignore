@@ -60,5 +60,13 @@ logs/
 # Jupyter
 .ipynb_checkpoints/
 
-# Spark checkpoints
+# Spark checkpoints and runtime data
 /tmp/checkpoints/
+data/checkpoints/
+**/checkpoints/
+spark-warehouse/
+*.parquet
+
+# Runtime data dumps
+data/
+!data/sample/
