@@ -65,9 +65,10 @@ from pydantic_settings import BaseSettings  # Configuration management
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
 # Import shared Kafka and event utilities
-from kafka_client import BaseKafkaConsumer  # Kafka message consumer
+from kafka_client import BaseKafkaConsumer, BaseKafkaProducer  # Kafka message consumer and producer
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
+from events import NotificationSentEvent  # Event definition for publishing notification.sent
 
 # Setup logging
 setup_logging("notification-service")
@@ -111,11 +112,17 @@ async def lifespan(app: FastAPI):
             topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.low", "inventory.depleted"],
         )
 
+        # Initialize Kafka producer for publishing notification.send events
+        producer = BaseKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
+
         email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
 
         def handle_event(event):
             """Handle incoming events."""
             logger.info(f"Processing event: type={event.event_type}, order_id={getattr(event, 'order_id', 'N/A')}, event_id={event.event_id}")
+            
+            email_sent = False
+            recipient_email = None
             
             if event.event_type == "order.confirmed":
                 # Send order confirmation email to user
@@ -133,7 +140,8 @@ Thank you for your purchase!
 Best regards,
 Kafka E-Commerce Team
 """
-                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+                recipient_email = f"{event.user_id}@example.com"
+                email_sent = email_sender.send_email(recipient_email, subject, body)
 
             elif event.event_type == "order.fulfilled":
                 # Send order fulfillment/shipment email with tracking number to user
@@ -155,7 +163,8 @@ Thank you for shopping with us!
 Best regards,
 Kafka E-Commerce Team
 """
-                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+                recipient_email = f"{event.user_id}@example.com"
+                email_sent = email_sender.send_email(recipient_email, subject, body)
 
             elif event.event_type == "order.cancelled":
                 # Send order cancellation email to user with clear explanation based on cancellation source
@@ -214,7 +223,8 @@ Kafka E-Commerce Team
 """
                 
                 logger.info(f"Sending order cancellation email for order_id={event.order_id}, user_id={event.user_id}, reason={cancellation_source}")
-                email_sender.send_email(f"{event.user_id}@example.com", subject, body)
+                recipient_email = f"{event.user_id}@example.com"
+                email_sent = email_sender.send_email(recipient_email, subject, body)
                 logger.info(f"Successfully sent order cancellation email for order_id={event.order_id}")
 
             elif event.event_type == "inventory.low":
@@ -231,7 +241,8 @@ Please restock or re-evaluate this product.
 
 Kafka E-Commerce Team
 """
-                email_sender.send_email(settings.admin_email, subject, body)
+                recipient_email = settings.admin_email
+                email_sent = email_sender.send_email(recipient_email, subject, body)
 
             elif event.event_type == "inventory.depleted":
                 # Send out-of-stock or insufficient stock alert to admin
@@ -248,7 +259,23 @@ Please restock or re-evaluate this product immediately.
 
 Kafka E-Commerce Team
 """
-                email_sender.send_email(settings.admin_email, subject, body)
+                recipient_email = settings.admin_email
+                email_sent = email_sender.send_email(recipient_email, subject, body)
+
+            # Publish notification.sent event to Kafka (regardless of success/failure for audit trail)
+            if email_sent and recipient_email:
+                try:
+                    notification_event = NotificationSentEvent(
+                        event_id=event.event_id,
+                        recipient_email=recipient_email,
+                        notification_type=event.event_type,
+                        related_event_id=getattr(event, 'order_id', getattr(event, 'product_id', 'unknown')),
+                        success=True
+                    )
+                    producer.send("notification.sent", notification_event)
+                    logger.info(f"Published notification.sent event for {recipient_email}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish notification.sent event: {e}")
 
         # Start consuming events
         try:

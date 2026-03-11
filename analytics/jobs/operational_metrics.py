@@ -15,18 +15,34 @@ BUSINESS VALUE:
     - Support SLA compliance monitoring
 
 KAFKA TOPICS CONSUMED:
-    Order Service:
+    Cart Service (3 topics):
+    - cart.item_added: Items added to shopping cart
+    - cart.item_removed: Items removed from shopping cart
+    - cart.checkout_initiated: Customer initiates checkout (start of journey)
+    
+    Order Service (5 topics):
     - order.created: New order creation events (source: order-service)
     - order.confirmed: Successfully confirmed orders after payment verification
     - order.cancelled: Orders cancelled due to payment failure or user action
+    - order.fulfilled: Order fulfillment completed
+    - order.reservation_confirmed: Inventory reservation confirmed for order
     
-    Payment Service:
+    Payment Service (2 topics):
     - payment.processed: Successful payment transactions (real-time confirmation)
     - payment.failed: Failed payment attempts (fraud, insufficient funds, timeout, etc.)
     
-    Inventory Service:
+    Inventory Service (3 topics):
     - inventory.reserved: Stock reservation completion events
-    - inventory.released: Stock release/unreservation events (on order cancellation)
+    - inventory.low: Low stock warning
+    - inventory.depleted: Stock depleted events
+    
+    Notification Service (1 topic):
+    - notification.sent: Email notifications successfully sent (journey completion indicator)
+    
+    EXCLUDED TOPICS:
+    - notification.send: Request to send notification (not an actual sent event)
+    - fraud.detected: Output from another Spark job, not raw service events
+    - dlq.* topics: Dead letter queue, not healthy events
 
 OUTPUT:
     PostgreSQL table: operational_metrics
@@ -58,7 +74,8 @@ OPERATIONAL METRICS:
 MONITORING ALGORITHM:
     Event-Based Throughput Monitoring with Health Scoring:
     
-    1. STREAMS INPUT: All event topics (6 total)
+    1. STREAMS INPUT: All operational event topics (14 total)
+       - Journey complete coverage: user adds item → checkout → order → payment → inventory → notification
     2. TIMESTAMP: Extract event timestamp from Kafka message
     3. WINDOWS: 1-minute tumbling windows
     4. AGGREGATION (per topic, per window):
@@ -165,11 +182,14 @@ def operational_metrics():
     spark = get_spark_session("operational-metrics")
     kafka_options = get_kafka_options()
 
-    # Create a multi-topic subscription for all events
+    # Subscribe to all operational topics across full customer journey
+    # Monitors: cart (3) + order (5) + payment (2) + inventory (3) + notification (1) = 14 topics
+    # Captures complete journey: cart → checkout → order → payment → inventory → notification
+    # Excludes: notification.send (request, not actual sent), fraud.* (derivative), dlq.* (non-healthy)
     df = spark \
         .readStream \
         .format("kafka") \
-        .option("subscribePattern", ".*") \
+        .option("subscribe", "cart.item_added,cart.item_removed,cart.checkout_initiated,order.created,order.confirmed,order.cancelled,order.fulfilled,order.reservation_confirmed,payment.processed,payment.failed,inventory.reserved,inventory.low,inventory.depleted,notification.sent") \
         .options(**kafka_options) \
         .load()
 
