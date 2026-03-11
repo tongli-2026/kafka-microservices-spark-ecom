@@ -262,18 +262,20 @@ Kafka E-Commerce Team
                 recipient_email = settings.admin_email
                 email_sent = email_sender.send_email(recipient_email, subject, body)
 
-            # Publish notification.send event to Kafka to track notification requests
-            if email_sent and recipient_email:
+            # Publish notification.send event to Kafka to track notification requests/completions
+            # Always publish when we have a recipient, regardless of success/failure
+            # This provides visibility into when the notification service sends emails
+            if recipient_email:
                 try:
                     notification_event = NotificationSendEvent(
                         event_id=event.event_id,
                         user_id=getattr(event, 'user_id', 'unknown'),
                         recipient_email=recipient_email,
                         notification_type=event.event_type,
-                        data={"email_sent": True}
+                        data={"email_sent": email_sent, "success": email_sent}
                     )
                     producer.send("notification.send", notification_event)
-                    logger.info(f"Published notification.send event for {recipient_email}")
+                    logger.info(f"Published notification.send event for {recipient_email} (success={email_sent})")
                 except Exception as e:
                     logger.warning(f"Failed to publish notification.send event: {e}")
 
