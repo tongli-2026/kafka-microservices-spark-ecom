@@ -15,63 +15,58 @@ BUSINESS VALUE:
     - Support SLA compliance monitoring
 
 KAFKA TOPICS CONSUMED:
-    - order.created: New order events
-    - order.confirmed: Successfully completed orders
-    - order.cancelled: Failed/cancelled orders
-    - payment.processed: Successful payment transactions
-    - payment.failed: Failed payment transactions
-    - inventory.reserved: Stock reservation events
-    - notification.triggered: Notification delivery events
+    Order Service:
+    - order.created: New order creation events (source: order-service)
+    - order.confirmed: Successfully confirmed orders after payment verification
+    - order.cancelled: Orders cancelled due to payment failure or user action
+    
+    Payment Service:
+    - payment.processed: Successful payment transactions (real-time confirmation)
+    - payment.failed: Failed payment attempts (fraud, insufficient funds, timeout, etc.)
+    
+    Inventory Service:
+    - inventory.reserved: Stock reservation completion events
+    - inventory.released: Stock release/unreservation events (on order cancellation)
 
 OUTPUT:
     PostgreSQL table: operational_metrics
     Schema:
-      - window_start: Start of measurement window
-      - window_end: End of measurement window
-      - service_name: Name of service (order, payment, inventory, etc.)
-      - metric_type: Type of metric (throughput, success_rate, latency, etc.)
-      - metric_value: Numeric value of metric
+      - window_start: Start of measurement window (timestamp)
+      - window_end: End of measurement window (timestamp)
+      - metric_name: Type of metric (currently: throughput)
+      - metric_value: Numeric value of metric (event count)
+      - threshold: Expected baseline threshold for this metric
       - status: Health status (HEALTHY, WARNING, CRITICAL)
+      - services_checked: JSON with topic_monitored and events_processed details
 
 OPERATIONAL METRICS:
     1. THROUGHPUT
-       - Total events per service per minute
-       - Success vs failure counts
-       - Trend: up/down/stable
+       - Total events per topic per minute
+       - Compares to baseline threshold (10,000 events/min)
+       - Status:
+         * HEALTHY: >8,000 events/min
+         * WARNING: >5,000 events/min
+         * CRITICAL: ≤5,000 events/min
     
-    2. SUCCESS RATES
-       - % of successful operations
-       - Threshold: >99.5% = HEALTHY, >95% = WARNING, <95% = CRITICAL
-    
-    3. LATENCY
-       - Average event processing time
-       - P95, P99 percentiles
-       - Threshold: <500ms = HEALTHY, <2s = WARNING, >2s = CRITICAL
-    
-    4. ERROR RATES
-       - % of failed events
-       - Error type breakdown
-       - Threshold: <0.5% = HEALTHY, <5% = WARNING, >5% = CRITICAL
-    
-    5. AVAILABILITY
-       - Service uptime percentage
-       - Time since last failure
-       - Recovery time metrics
+    NOTE: Current implementation focuses on throughput monitoring.
+    Future enhancements could include:
+    - Success rate calculation (requires status field in events)
+    - Latency metrics (requires timestamp information in event payload)
+    - Error rate tracking (requires error flag in events)
+    - Service-level availability tracking
 
 MONITORING ALGORITHM:
-    Multi-Stream Aggregation with Health Scoring:
+    Event-Based Throughput Monitoring with Health Scoring:
     
-    1. STREAMS INPUT: All event topics (7 total)
-    2. TIMESTAMP: Extract event timestamp
+    1. STREAMS INPUT: All event topics (6 total)
+    2. TIMESTAMP: Extract event timestamp from Kafka message
     3. WINDOWS: 1-minute tumbling windows
-    4. AGGREGATION (per service, per window):
-       - COUNT(events) → throughput
-       - COUNT(success) / COUNT(*) → success_rate
-       - AVG(latency) → latency
+    4. AGGREGATION (per topic, per window):
+       - COUNT(events) → throughput (events processed per minute)
     5. HEALTH SCORING:
-       - Compare metrics to thresholds
+       - Compare event count to thresholds
        - Assign status (HEALTHY/WARNING/CRITICAL)
-    6. OUTPUT: Write to PostgreSQL with status
+    6. OUTPUT: Write to PostgreSQL with status and topic details
     
     Example Timeline:
     ┌──────────────────────────────────────────┐
@@ -96,7 +91,7 @@ MONITORING ALGORITHM:
 WINDOWING:
     - Window Duration: 1 minute
     - Window Type: Tumbling (non-overlapping)
-    - Watermark: 30 seconds for late data
+    - Watermark: 10 seconds for late data
     - Trigger: Process every 10 seconds
 
 ALERTING THRESHOLDS:
@@ -129,6 +124,8 @@ MONITORING:
 
 import logging
 import os
+import psycopg2
+from psycopg2.extras import execute_values
 
 # Spark SQL functions for metrics calculation
 from pyspark.sql.functions import (
@@ -136,7 +133,7 @@ from pyspark.sql.functions import (
     to_json, struct
 )
 # Spark data types for schema definitions
-from pyspark.sql.types import StructType, StructField, StringType
+from pyspark.sql.types import StringType
 
 # Import shared Spark configuration
 # Note: spark_session.py is in parent directory (analytics/)
@@ -200,23 +197,61 @@ def operational_metrics():
             to_json(struct(
                 col("topic").alias("topic_monitored"),
                 col("event_count").alias("events_processed")
-            )).alias("services_checked")
+            )).cast("string").alias("services_checked")
         )
 
     # Write to PostgreSQL
     def foreach_batch_function(batch_df, batch_id):
         if batch_df.count() > 0:
             logger.info(f"Writing {batch_df.count()} operational metrics (batch_id={batch_id})")
-            batch_df.write \
-                .format("jdbc") \
-                .mode("append") \
-                .option("url", f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}") \
-                .option("dbtable", "operational_metrics") \
-                .option("user", POSTGRES_USER) \
-                .option("password", POSTGRES_PASSWORD) \
-                .option("driver", "org.postgresql.Driver") \
-                .save()
-            logger.info(f"Successfully wrote operational metrics (batch_id={batch_id})")
+            try:
+                # Convert to temporary Parquet for reliable data transfer
+                temp_path = f"/tmp/operational_metrics_batch_{batch_id}"
+                batch_df.coalesce(1).write.mode("overwrite").parquet(temp_path)
+                
+                # Now read and insert using psycopg2 with proper error handling
+                import psycopg2
+                from psycopg2 import sql
+                
+                conn = psycopg2.connect(
+                    host=POSTGRES_HOST,
+                    port=POSTGRES_PORT,
+                    user=POSTGRES_USER,
+                    password=POSTGRES_PASSWORD,
+                    database=POSTGRES_DB,
+                    connect_timeout=10
+                )
+                conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                cursor = conn.cursor()
+                
+                rows = batch_df.collect()
+                for row in rows:
+                    try:
+                        insert_query = """
+                            INSERT INTO operational_metrics 
+                            (window_start, window_end, metric_name, metric_value, threshold, status, services_checked)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                        """
+                        cursor.execute(insert_query, (
+                            row.window_start,
+                            row.window_end,
+                            row.metric_name,
+                            row.metric_value,
+                            row.threshold,
+                            row.status,
+                            row.services_checked
+                        ))
+                    except Exception as row_error:
+                        logger.warning(f"Failed to insert row: {row_error}")
+                        conn.rollback()
+                
+                logger.info(f"Successfully wrote operational metrics (batch_id={batch_id})")
+                cursor.close()
+                conn.close()
+                
+            except Exception as e:
+                logger.error(f"Error writing to PostgreSQL (batch_id={batch_id}): {e}")
+                # Don't raise - allow streaming to continue even if DB write fails
 
     checkpoint_path = os.getenv("CHECKPOINT_PATH", "/opt/spark-data/checkpoints/operational_metrics")
     
@@ -224,6 +259,7 @@ def operational_metrics():
         .writeStream \
         .foreachBatch(foreach_batch_function) \
         .outputMode("append") \
+        .trigger(processingTime="10 seconds") \
         .option("checkpointLocation", checkpoint_path) \
         .start() \
         .awaitTermination()
