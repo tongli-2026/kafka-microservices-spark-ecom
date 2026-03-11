@@ -262,22 +262,24 @@ Kafka E-Commerce Team
                 recipient_email = settings.admin_email
                 email_sent = email_sender.send_email(recipient_email, subject, body)
 
-            # Publish notification.send event to Kafka to track notification requests/completions
-            # Always publish when we have a recipient, regardless of success/failure
-            # This provides visibility into when the notification service sends emails
-            if recipient_email:
-                try:
-                    notification_event = NotificationSendEvent(
-                        event_id=event.event_id,
-                        user_id=getattr(event, 'user_id', 'unknown'),
-                        recipient_email=recipient_email,
-                        notification_type=event.event_type,
-                        data={"email_sent": email_sent, "success": email_sent}
-                    )
-                    producer.send("notification.send", notification_event)
-                    logger.info(f"Published notification.send event for {recipient_email} (success={email_sent})")
-                except Exception as e:
-                    logger.warning(f"Failed to publish notification.send event: {e}")
+            # Publish notification.send event to Kafka to track all notification processing
+            # Always publish for every event received, regardless of success/failure
+            # This provides visibility into when the notification service processes events
+            try:
+                # Ensure we have a recipient email, fallback to unknown if not set
+                final_recipient = recipient_email if recipient_email else "unknown@example.com"
+                
+                notification_event = NotificationSendEvent(
+                    event_id=event.event_id,
+                    user_id=getattr(event, 'user_id', 'unknown'),
+                    recipient_email=final_recipient,
+                    notification_type=event.event_type,
+                    data={"email_sent": email_sent, "success": email_sent, "processed": True}
+                )
+                producer.send("notification.send", notification_event)
+                logger.info(f"Published notification.send event: type={event.event_type}, recipient={final_recipient}, success={email_sent}")
+            except Exception as e:
+                logger.warning(f"Failed to publish notification.send event: {e}")
 
         # Start consuming events
         try:
