@@ -42,11 +42,12 @@ OUTPUT:
 OPERATIONAL METRICS:
     1. THROUGHPUT
        - Total events per topic per minute
-       - Compares to baseline threshold (10,000 events/min)
+       - Compares to baseline threshold (100 events/min per topic)
        - Status:
-         * HEALTHY: >8,000 events/min
-         * WARNING: >5,000 events/min
-         * CRITICAL: ≤5,000 events/min
+         * HEALTHY: >80 events/min
+         * WARNING: >50 events/min
+         * CRITICAL: ≤50 events/min
+       - Note: Realistic threshold for demo environment with 5-10 concurrent users
     
     NOTE: Current implementation focuses on throughput monitoring.
     Future enhancements could include:
@@ -101,11 +102,12 @@ ALERTING THRESHOLDS:
     - Service unavailable > 30 seconds: CRITICAL alert
 
 PERFORMANCE:
-    - Kafka Max Rate: 10,000 events/partition/second
+    - Kafka Throughput: 100+ events/minute per topic (baseline for healthy system)
     - Processing Mode: Micro-batch (foreachBatch)
     - Output Mode: Append (only new metrics)
     - Fault Tolerance: Checkpointing at /opt/spark-data/checkpoints/operational_metrics
     - Checkpoint Configuration: Via CHECKPOINT_PATH environment variable (default: /opt/spark-data/checkpoints/operational_metrics)
+    - Latency: ~10 seconds end-to-end (includes processing trigger + database write)
 
 USAGE:
     ./scripts/spark/run-spark-job.sh operational_metrics
@@ -190,9 +192,9 @@ def operational_metrics():
             col("window.end").alias("window_end"),
             lit("throughput").alias("metric_name"),
             col("event_count").alias("metric_value"),
-            lit(10000).alias("threshold"),  # Expected 10k events/min
-            when(col("event_count") > 8000, "HEALTHY")
-                .when(col("event_count") > 5000, "WARNING")
+            lit(100).alias("threshold"),  # Expected ~100 events/min per topic (realistic for demo)
+            when(col("event_count") > 80, "HEALTHY")
+                .when(col("event_count") > 50, "WARNING")
                 .otherwise("CRITICAL").alias("status"),
             to_json(struct(
                 col("topic").alias("topic_monitored"),
