@@ -37,6 +37,8 @@ KAFKA TOPICS CONSUMED:
     - inventory.depleted: Stock depleted events
     
     Notification Service (1 topic):
+    - notification.send: Email notification sent to users/admins (sent after email delivery)
+    Notification Service (1 topic):
     - notification.sent: Email notifications successfully sent (journey completion indicator)
     
     EXCLUDED TOPICS:
@@ -189,7 +191,7 @@ def operational_metrics():
     df = spark \
         .readStream \
         .format("kafka") \
-        .option("subscribe", "cart.item_added,cart.item_removed,cart.checkout_initiated,order.created,order.confirmed,order.cancelled,order.fulfilled,order.reservation_confirmed,payment.processed,payment.failed,inventory.reserved,inventory.low,inventory.depleted,notification.sent") \
+        .option("subscribe", "cart.item_added,cart.item_removed,cart.checkout_initiated,order.created,order.confirmed,order.cancelled,order.fulfilled,order.reservation_confirmed,payment.processed,payment.failed,inventory.reserved,inventory.low,inventory.depleted,notification.send") \
         .options(**kafka_options) \
         .load()
 

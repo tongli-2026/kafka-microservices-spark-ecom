@@ -68,7 +68,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 from kafka_client import BaseKafkaConsumer, BaseKafkaProducer  # Kafka message consumer and producer
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
-from events import NotificationSentEvent  # Event definition for publishing notification.sent
+from events import NotificationSendEvent  # Event definition for publishing notification.send
 
 # Setup logging
 setup_logging("notification-service")
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
             topics=["order.confirmed", "order.fulfilled", "order.cancelled", "inventory.low", "inventory.depleted"],
         )
 
-        # Initialize Kafka producer for publishing notification.send events
+        # Initialize Kafka producer for publishing notification.send events (email request tracking)
         producer = BaseKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
 
         email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
@@ -262,20 +262,20 @@ Kafka E-Commerce Team
                 recipient_email = settings.admin_email
                 email_sent = email_sender.send_email(recipient_email, subject, body)
 
-            # Publish notification.sent event to Kafka (regardless of success/failure for audit trail)
+            # Publish notification.send event to Kafka to track notification requests
             if email_sent and recipient_email:
                 try:
-                    notification_event = NotificationSentEvent(
+                    notification_event = NotificationSendEvent(
                         event_id=event.event_id,
+                        user_id=getattr(event, 'user_id', 'unknown'),
                         recipient_email=recipient_email,
                         notification_type=event.event_type,
-                        related_event_id=getattr(event, 'order_id', getattr(event, 'product_id', 'unknown')),
-                        success=True
+                        data={"email_sent": True}
                     )
-                    producer.send("notification.sent", notification_event)
-                    logger.info(f"Published notification.sent event for {recipient_email}")
+                    producer.send("notification.send", notification_event)
+                    logger.info(f"Published notification.send event for {recipient_email}")
                 except Exception as e:
-                    logger.warning(f"Failed to publish notification.sent event: {e}")
+                    logger.warning(f"Failed to publish notification.send event: {e}")
 
         # Start consuming events
         try:

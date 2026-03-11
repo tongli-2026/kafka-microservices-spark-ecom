@@ -338,28 +338,6 @@ class NotificationSendEvent(BaseEvent):
     data: Dict[str, Any]  # Notification-specific data (order details, etc.)
 
 
-class NotificationSentEvent(BaseEvent):
-    """
-    Event published by Notification Service after successfully sending an email.
-    Indicates that a notification has been delivered to a recipient.
-    
-    Triggers: Notification Service (after sending email via Mailhog)
-    Consumers: Operational metrics, audit logging, analytics jobs
-    
-    Purpose:
-    - Track notification delivery success/failure
-    - Measure notification pipeline throughput
-    - Audit trail of all notifications sent
-    - Operational metrics visibility
-    """
-
-    event_type: str = "notification.sent"
-    recipient_email: str  # Email address the notification was sent to
-    notification_type: str  # Type of notification (order.confirmed, order.fulfilled, etc.)
-    related_event_id: str  # Order ID or Product ID that triggered this notification
-    success: bool = True  # Whether the email was successfully sent
-
-
 # ============================================================================
 # DLQ EVENTS - Dead Letter Queue (failed message processing)
 # ============================================================================
@@ -397,7 +375,6 @@ EVENT_TYPE_MAP = {
     "payment.processed": PaymentProcessedEvent,
     "payment.failed": PaymentFailedEvent,
     "notification.send": NotificationSendEvent,
-    "notification.sent": NotificationSentEvent,
     "fraud.detected": FraudDetectedEvent,
     "dlq.events": DLQEvent,
 }
@@ -417,7 +394,6 @@ ALL_TOPICS = [
     "payment.processed",
     "payment.failed",
     "notification.send",
-    "notification.sent",
     "fraud.detected",
     "dlq.events",
 ]
