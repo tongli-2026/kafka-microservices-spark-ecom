@@ -277,7 +277,7 @@ Kafka E-Commerce Team
                     notification_type=event.event_type,
                     data={"email_sent": email_sent, "success": email_sent, "processed": True}
                 )
-                producer.send("notification.send", notification_event)
+                producer.publish("notification.send", notification_event)
                 logger.info(f"Published notification.send event: type={event.event_type}, recipient={final_recipient}, success={email_sent}")
             except Exception as e:
                 logger.warning(f"Failed to publish notification.send event: {e}")
