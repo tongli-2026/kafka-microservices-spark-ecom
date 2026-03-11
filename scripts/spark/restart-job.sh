@@ -17,7 +17,11 @@ fi
 #
 # USAGE:
 #   ./scripts/spark/restart-job.sh cart_abandonment
+#   ./scripts/spark/restart-job.sh fraud_detection
+#   ./scripts/spark/restart-job.sh inventory_velocity
+#   ./scripts/spark/restart-job.sh operational_metrics
 #   ./scripts/spark/restart-job.sh revenue_streaming
+
 #
 # WHY NEEDED:
 #   After modifying Spark job code, checkpoints from the old job will cause
@@ -45,8 +49,11 @@ if [ -z "$JOB_NAME" ]; then
     echo -e "${RED}Error: Job name required${NC}"
     echo "Usage: $0 <job_name>"
     echo ""
-    echo "Examples:"
+    echo "Available jobs:"
     echo "  $0 cart_abandonment"
+    echo "  $0 fraud_detection"
+    echo "  $0 inventory_velocity"
+    echo "  $0 operational_metrics"
     echo "  $0 revenue_streaming"
     exit 1
 fi
