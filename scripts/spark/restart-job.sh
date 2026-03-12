@@ -33,6 +33,20 @@ fi
 #   3. Removes checkpoint directory from Spark containers
 #   4. Submits the job fresh via run-spark-job.sh
 #
+# ABOUT EXIT CODES:
+#   ✅ Exit code 0   = Job restarted successfully
+#   ⚠️  Exit code 1   = Job submission had issues (check logs)
+#   ⚠️  Exit code 137 = Job killed or backgrounded (NORMAL - job still runs!)
+#   
+#   NOTE: Exit code 137 is NORMAL when job is backgrounded by 'nohup'.
+#   The job continues running in background. Verify with:
+#   docker exec spark-worker-1 pgrep -f "job_name.py"
+#
+# ABOUT WARNINGS IN LOGS:
+#   The warnings like "HDFSBackedStateStoreProvider: The state for version X doesn't exist"
+#   are NORMAL and expected on first batch. This is Spark initializing checkpoints.
+#   Not an error - job is working correctly.
+#
 
 # Color codes for output
 RED='\033[0;31m'
@@ -65,15 +79,18 @@ echo ""
 
 # Step 1: Kill running instances
 echo -e "${YELLOW}Step 1: Killing any running instances...${NC}"
-docker exec spark-worker-1 pkill -9 -f "${JOB_NAME}.py" 2>/dev/null
+docker exec spark-worker-1 pkill -9 -f "${JOB_NAME}.py" 2>/dev/null || true
+docker exec spark-worker-2 pkill -9 -f "${JOB_NAME}.py" 2>/dev/null || true
+docker exec spark-master pkill -9 -f "${JOB_NAME}.py" 2>/dev/null || true
 sleep 2
 echo -e "${GREEN}✅ Job processes killed${NC}"
 echo ""
 
-# Step 2: Clear checkpoints
+# Step 2: Clear checkpoints for this specific job
 echo -e "${YELLOW}Step 2: Clearing checkpoint directories...${NC}"
-docker exec spark-worker-1 rm -rf /tmp/checkpoints /opt/spark-data/checkpoints 2>/dev/null
-docker exec spark-master rm -rf /tmp/checkpoints /opt/spark-data/checkpoints 2>/dev/null
+docker exec spark-worker-1 rm -rf /tmp/checkpoints/${JOB_NAME} /opt/spark-data/checkpoints/${JOB_NAME} 2>/dev/null || true
+docker exec spark-worker-2 rm -rf /tmp/checkpoints/${JOB_NAME} /opt/spark-data/checkpoints/${JOB_NAME} 2>/dev/null || true
+docker exec spark-master rm -rf /tmp/checkpoints/${JOB_NAME} /opt/spark-data/checkpoints/${JOB_NAME} 2>/dev/null || true
 sleep 1
 echo -e "${GREEN}✅ Checkpoints cleared${NC}"
 echo ""

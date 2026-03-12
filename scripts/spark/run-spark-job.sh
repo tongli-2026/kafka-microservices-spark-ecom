@@ -9,7 +9,7 @@
 #   Handles all spark-submit parameters and package dependencies.
 #
 # USAGE:
-#   ./run-spark-job.sh <job_name>
+#   ./scripts/spark/run-spark-job.sh <job_name>
 #
 # AVAILABLE JOBS:
 #   1. fraud_detection       - Real-time fraud pattern detection (10-second micro-batches)
@@ -19,11 +19,11 @@
 #   5. operational_metrics   - System health and performance metrics (10-second intervals)
 #
 # EXAMPLES:
-#   ./run-spark-job.sh fraud_detection
-#   ./run-spark-job.sh revenue_streaming
-#   ./run-spark-job.sh cart_abandonment
-#   ./run-spark-job.sh inventory_velocity
-#   ./run-spark-job.sh operational_metrics
+#   ./scripts/spark/run-spark-job.sh fraud_detection
+#   ./scripts/spark/run-spark-job.sh revenue_streaming
+#   ./scripts/spark/run-spark-job.sh cart_abandonment
+#   ./scripts/spark/run-spark-job.sh inventory_velocity
+#   ./scripts/spark/run-spark-job.sh operational_metrics
 #
 # NOTES:
 #   - Most jobs run continuously (streaming)
@@ -118,8 +118,10 @@ echo ""
 echo -e "${BLUE}Starting job submission...${NC}"
 echo ""
 
-# Submit Spark job
+# Submit Spark job with Maven package resolution
 docker exec spark-worker-1 bash -c "
+  mkdir -p /opt/spark-data/checkpoints/${JOB_NAME} && \
+  chmod 777 /opt/spark-data && chmod 777 /opt/spark-data/checkpoints && chmod 777 /opt/spark-data/checkpoints/${JOB_NAME} && \
   cd /opt/spark-apps && \
   export PYTHONPATH=/opt/spark-apps:\$PYTHONPATH && \
   /opt/spark/bin/spark-submit \
@@ -128,12 +130,11 @@ docker exec spark-worker-1 bash -c "
     --driver-memory 2g \
     --executor-memory 2g \
     --total-executor-cores 4 \
+    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1 \
     --conf spark.driver.bindAddress=0.0.0.0 \
     --conf spark.driver.host=0.0.0.0 \
     --conf spark.ui.hostname=0.0.0.0 \
     --conf spark.sql.streaming.checkpointLocation=/opt/spark-data/checkpoints/${JOB_NAME} \
-    --repositories https://repo.maven.apache.org/maven2/ \
-    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1 \
     --py-files /opt/spark-apps/spark_session.py \
     ${JOB_FILE}
 "

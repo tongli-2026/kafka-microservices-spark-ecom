@@ -43,10 +43,13 @@ echo -e "${GREEN}✅ Checkpoints cleared${NC}"
 echo ""
 
 # Define jobs to start
-JOBS=("revenue_streaming" "fraud_detection" "cart_abandonment" "inventory_velocity" "operational_metrics")
+JOBS=("fraud_detection" "revenue_streaming" "cart_abandonment" "inventory_velocity" "operational_metrics")
 
-echo -e "${YELLOW}Starting jobs...${NC}"
+echo -e "${YELLOW}Starting ${#JOBS[@]} jobs...${NC}"
 echo ""
+
+SUCCESSFUL=0
+FAILED=0
 
 # Start each job in background
 for job in "${JOBS[@]}"; do
@@ -54,11 +57,24 @@ for job in "${JOBS[@]}"; do
     ./scripts/spark/run-spark-job.sh "$job" > /tmp/spark_${job}.log 2>&1 &
     JOB_PID=$!
     echo "   PID: $JOB_PID (log: /tmp/spark_${job}.log)"
-    sleep 3  # Small delay between submissions
+    
+    # Wait a bit and check if submission was successful
+    sleep 2
+    if grep -q "✓ Job submitted successfully" /tmp/spark_${job}.log 2>/dev/null; then
+        ((SUCCESSFUL++))
+    else
+        ((FAILED++))
+    fi
+    
+    sleep 2  # Small delay between submissions
 done
 
 echo ""
-echo -e "${GREEN}✅ All jobs submitted!${NC}"
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}✅ All ${SUCCESSFUL} jobs submitted successfully!${NC}"
+else
+    echo -e "${YELLOW}⚠️  ${SUCCESSFUL} submitted, ${FAILED} may have issues${NC}"
+fi
 echo ""
 echo -e "${YELLOW}Monitor jobs:${NC}"
 echo "  - Spark Master UI: ${BLUE}http://localhost:9080/${NC}"
