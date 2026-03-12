@@ -37,12 +37,9 @@ KAFKA TOPICS CONSUMED:
     - inventory.depleted: Stock depleted events
     
     Notification Service (1 topic):
-    - notification.send: Email notification sent to users/admins (sent after email delivery)
-    Notification Service (1 topic):
-    - notification.sent: Email notifications successfully sent (journey completion indicator)
+    - notification.send: Email notifications sent to users/admins after email delivery
     
     EXCLUDED TOPICS:
-    - notification.send: Request to send notification (not an actual sent event)
     - fraud.detected: Output from another Spark job, not raw service events
     - dlq.* topics: Dead letter queue, not healthy events
 

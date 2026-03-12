@@ -2,7 +2,15 @@
 spark_session.py - Spark Session Factory and Configuration
 
 PURPOSE:
-    Provides factory functions for creating Spark sessions configured for:
+    Provides f    spark = (
+        SparkSession.builder
+        .appName(app_name)
+        .master(spark_master)
+        .config("spark.sql.streaming.checkpointLocation", checkpoint_dir)
+        .config("spark.streaming.kafka.maxRatePerPartition", "10000")
+        .config("spark.sql.session.timeZone", "UTC")
+        .getOrCreate()
+    )ctions for creating Spark sessions configured for:
     - Kafka streaming integration
     - Structured Streaming operations
     - Local and cluster mode deployment
