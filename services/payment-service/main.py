@@ -86,6 +86,18 @@ from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
 from sqlalchemy import create_engine  # Database ORM
 from sqlalchemy.orm import sessionmaker  # Database session management
+from fastapi.responses import Response  # For metrics endpoint
+
+# Import prometheus metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from shared.metrics import (
+    add_metrics_middleware,
+    track_operation,
+    payment_processing_total,
+    payment_processing_duration_seconds,
+    idempotency_cache_hits_total,
+    idempotency_cache_misses_total,
+)
 
 # Import local schemas for input/output validation
 from schemas import HealthResponse, PaymentSchema, PaymentListResponse  # Pydantic models
@@ -270,6 +282,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Payment Service", version="1.0.0", lifespan=lifespan)
 
+# Add metrics middleware for automatic request tracking
+add_metrics_middleware(app, "payment-service")
 
 # API Endpoints
 # Health check endpoint
@@ -280,6 +294,15 @@ async def health() -> HealthResponse:
         status="ok",
         service="payment-service",
         version="1.0.0",
+    )
+
+# Metrics endpoint for Prometheus
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
     )
 
 # Retrieve payment details endpoint

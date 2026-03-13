@@ -1,0 +1,10 @@
+FROM grafana/grafana:10.0.0
+
+# Copy provisioning configurations
+COPY monitoring/provisioning /etc/grafana/provisioning
+
+# Expose dashboard port
+EXPOSE 3000
+
+# Start Grafana
+CMD ["bin/grafana-server", "cfg:default.paths.provisioning=/etc/grafana/provisioning"]

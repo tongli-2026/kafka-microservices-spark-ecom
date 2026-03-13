@@ -60,6 +60,11 @@ from pathlib import Path
 
 from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
+from fastapi.responses import Response  # For metrics endpoint
+
+# Import prometheus metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from shared.metrics import add_metrics_middleware
 
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -299,6 +304,8 @@ Kafka E-Commerce Team
 
 app = FastAPI(title="Notification Service", version="1.0.0", lifespan=lifespan)
 
+# Add metrics middleware for automatic request tracking
+add_metrics_middleware(app, "notification-service")
 
 # API endpoint for health check
 @app.get("/health")
@@ -309,6 +316,16 @@ async def health():
         "service": "notification-service",
         "version": "1.0.0",
     }
+
+
+# Metrics endpoint for Prometheus
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 if __name__ == "__main__":

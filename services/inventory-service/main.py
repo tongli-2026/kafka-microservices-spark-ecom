@@ -143,6 +143,11 @@ from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
 from sqlalchemy import create_engine  # Database ORM
 from sqlalchemy.orm import sessionmaker  # Database session management
+from fastapi.responses import Response  # For metrics endpoint
+
+# Import prometheus metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from shared.metrics import add_metrics_middleware
 
 # Import local schemas for input/output validation
 from schemas import HealthResponse, ProductSchema, ProductsListResponse  # Pydantic models
@@ -391,6 +396,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Inventory Service", version="1.0.0", lifespan=lifespan)
 
+# Add metrics middleware for automatic request tracking
+add_metrics_middleware(app, "inventory-service")
 
 # API Endpoints
 # Health check endpoint
@@ -401,6 +408,16 @@ async def health() -> HealthResponse:
         status="ok",
         service="inventory-service",
         version="1.0.0",
+    )
+
+
+# Metrics endpoint for Prometheus
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
     )
 
 

@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 15s          # Scrape metrics every 15 seconds
+  evaluation_interval: 15s      # Evaluate alerts every 15 seconds
+  external_labels:
+    monitor: 'kafka-ecom-prod'
+
+# Alerting configuration (optional, for Phase 2)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # Uncomment to enable: alertmanager:9093
+
+# Alert rules (optional, for Phase 2)
+rule_files:
+  # - "alert-rules.yml"
+
+scrape_configs:
+  # ==================== PAYMENT SERVICE ====================
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:8003']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ==================== ORDER SERVICE ====================
+  - job_name: 'order-service'
+    static_configs:
+      - targets: ['order-service:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ==================== INVENTORY SERVICE ====================
+  - job_name: 'inventory-service'
+    static_configs:
+      - targets: ['inventory-service:8004']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ==================== NOTIFICATION SERVICE ====================
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:8005']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ==================== CART SERVICE ====================
+  - job_name: 'cart-service'
+    static_configs:
+      - targets: ['cart-service:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ==================== PROMETHEUS ITSELF ====================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

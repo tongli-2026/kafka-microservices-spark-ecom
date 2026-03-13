@@ -89,6 +89,11 @@ from uuid import uuid4
 import redis  # In-memory cache for cart data
 from fastapi import FastAPI, HTTPException, status  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
+from fastapi.responses import Response  # For metrics endpoint
+
+# Import prometheus metrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from shared.metrics import add_metrics_middleware
 
 # Import local schemas for input/output validation
 from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest, MessageResponse, CheckoutResponse  # Pydantic models
@@ -176,6 +181,8 @@ async def lifespan(app: FastAPI):
 # The app is created with the lifespan context manager, so startup tasks run automatically.
 app = FastAPI(title="Cart Service", version="1.0.0", lifespan=lifespan)
 
+# Add metrics middleware for automatic request tracking
+add_metrics_middleware(app, "cart-service")
 
 # This creates a health check endpoint at GET /health that returns a JSON response showing the service is running.
 # We can use this endpoint for monitoring and load balancer health checks to ensure the service is healthy and responsive.
@@ -188,6 +195,17 @@ async def health() -> HealthResponse:
         service="cart-service",
         version="1.0.0",
     )
+
+
+# Metrics endpoint for Prometheus
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
 
 # The add_item endpoint allows clients to add a product to a user's shopping cart. 
 # It accepts a POST request with the user_id in the URL and the item details (product_id, quantity, price) in the request body as JSON. 

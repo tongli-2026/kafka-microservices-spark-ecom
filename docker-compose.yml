@@ -381,6 +381,62 @@ services:
       - POSTGRES_PORT=5432
       - TZ=America/Los_Angeles
 
+  # ==================== MONITORING STACK ====================
+  
+  prometheus:
+    build:
+      context: .
+      dockerfile: monitoring/Dockerfile.prometheus
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    networks:
+      - kafka-network
+    environment:
+      - TZ=America/Los_Angeles
+    depends_on:
+      - payment-service
+      - order-service
+      - inventory-service
+      - notification-service
+      - cart-service
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  grafana:
+    build:
+      context: .
+      dockerfile: monitoring/Dockerfile.grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/provisioning:/etc/grafana/provisioning
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - kafka-network
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-piechart-panel,grafana-worldmap-panel"
+      TZ: America/Los_Angeles
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 networks:
   kafka-network:
     driver: bridge
@@ -389,4 +445,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
