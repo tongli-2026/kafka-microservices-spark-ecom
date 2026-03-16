@@ -93,7 +93,11 @@ from fastapi.responses import Response  # For metrics endpoint
 
 # Import prometheus metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from shared.metrics import add_metrics_middleware
+from shared.metrics import (
+    add_metrics_middleware,
+    track_cart_operation,
+    track_kafka_message,
+)
 
 # Import local schemas for input/output validation
 from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest, MessageResponse, CheckoutResponse  # Pydantic models
@@ -225,6 +229,9 @@ async def add_item(user_id: str, item: CartItemRequest) -> MessageResponse:
         )
         repo.add_item(user_id, cart_item)
 
+        # Track cart operation
+        track_cart_operation("cart-service", "add_item")
+
         # Publish cart.item_added event
         event = CartItemAddedEvent(
             user_id=user_id,
@@ -234,6 +241,7 @@ async def add_item(user_id: str, item: CartItemRequest) -> MessageResponse:
             correlation_id=str(uuid4()),
         )
         producer.publish("cart.item_added", event)
+        track_kafka_message("cart-service", "cart.item_added", published=True, success=True)
 
         return MessageResponse(message=f"Item {item.product_id} added to cart")
     except Exception as e:
@@ -253,6 +261,9 @@ async def remove_item(user_id: str, product_id: str) -> MessageResponse:
         removed = repo.remove_item(user_id, product_id)
 
         if removed:
+            # Track cart operation
+            track_cart_operation("cart-service", "remove_item")
+
             # Publish cart.item_removed event
             event = CartItemRemovedEvent(
                 user_id=user_id,
@@ -260,6 +271,7 @@ async def remove_item(user_id: str, product_id: str) -> MessageResponse:
                 correlation_id=str(uuid4()),
             )
             producer.publish("cart.item_removed", event)
+            track_kafka_message("cart-service", "cart.item_removed", published=True, success=True)
             return MessageResponse(message=f"Item {product_id} removed from cart")
         else:
             raise HTTPException(
@@ -359,6 +371,10 @@ async def checkout(user_id: str) -> CheckoutResponse:
             correlation_id=str(uuid4()),
         )
         producer.publish("cart.checkout_initiated", event)
+        track_kafka_message("cart-service", "cart.checkout_initiated", published=True, success=True)
+        
+        # Track checkout operation
+        track_cart_operation("cart-service", "checkout")
         
         # Clear cart synchronously after publishing event to ensure cart is empty for next session
         repo.clear_cart(user_id)

@@ -107,6 +107,13 @@ order_processing_total = Counter(
     ['service', 'status'],  # status: created, confirmed, cancelled
 )
 
+order_processing_duration_seconds = Histogram(
+    'order_processing_duration_seconds',
+    'Order processing duration in seconds',
+    ['service'],
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
 saga_steps_total = Counter(
     'saga_orchestration_steps_total',
     'Total saga orchestration steps executed',
@@ -176,6 +183,12 @@ notification_sent_total = Counter(
     'notification_sent_total',
     'Total notifications sent',
     ['service', 'type', 'status'],  # type: email, sms; status: sent, failed
+)
+
+notification_event_type_total = Counter(
+    'notification_event_type_total',
+    'Total notifications by event type',
+    ['service', 'event_type'],  # event_type: order.confirmed, order.fulfilled, order.cancelled, inventory.low, inventory.depleted
 )
 
 notification_processing_duration_seconds = Histogram(
@@ -418,3 +431,353 @@ def get_metrics_response():
             return Response(content=content, media_type=content_type)
     """
     return (generate_latest(), CONTENT_TYPE_LATEST)
+
+
+# ============================================================================
+# ADDITIONAL HELPER FUNCTIONS FOR ENHANCED MONITORING
+# ============================================================================
+
+
+def track_saga_step(
+    service_name: str,
+    step_name: str,
+    success: bool,
+    compensated: bool = False,
+):
+    """
+    Track saga orchestration steps.
+    
+    Usage:
+        track_saga_step(
+            service_name="order-service",
+            step_name="payment",
+            success=True,
+            compensated=False
+        )
+    """
+    status = "compensated" if compensated else ("success" if success else "failed")
+    saga_steps_total.labels(
+        service=service_name,
+        step=step_name,
+        status=status,
+    ).inc()
+
+
+def track_saga_compensation(service_name: str, step_name: str):
+    """
+    Track saga compensation events (rollbacks).
+    
+    Usage:
+        track_saga_compensation("order-service", "payment")
+    """
+    saga_compensation_total.labels(
+        service=service_name,
+        step=step_name,
+    ).inc()
+
+
+def update_saga_gauge(service_name: str, metric_gauge: Gauge, value: int):
+    """
+    Update saga-related gauges (pending orders, pending outbox events).
+    
+    Usage:
+        update_saga_gauge("order-service", pending_orders_gauge, 5)
+    """
+    metric_gauge.labels(service=service_name).set(value)
+
+
+def track_cache_hit(
+    cache_type: str,
+    service_name: str,
+    hit: bool = True,
+):
+    """
+    Track cache hits and misses for any cache type.
+    
+    Usage:
+        track_cache_hit("redis", "cart-service", hit=True)
+        track_cache_hit("idempotency", "payment-service", hit=False)
+    """
+    if cache_type == "idempotency" and service_name == "payment-service":
+        if hit:
+            idempotency_cache_hits_total.labels(service=service_name).inc()
+        else:
+            idempotency_cache_misses_total.labels(service=service_name).inc()
+    elif cache_type == "redis" and service_name == "cart-service":
+        if hit:
+            redis_cache_hits_total.labels(service=service_name).inc()
+        else:
+            redis_cache_misses_total.labels(service=service_name).inc()
+    elif cache_type == "notification_dedup" and service_name == "notification-service":
+        if hit:
+            notification_deduplication_hits_total.labels(service=service_name).inc()
+
+
+def track_order_status(service_name: str, status: str):
+    """
+    Track order status changes.
+    
+    Usage:
+        track_order_status("order-service", "created")
+        track_order_status("order-service", "confirmed")
+        track_order_status("order-service", "cancelled")
+    """
+    order_processing_total.labels(
+        service=service_name,
+        status=status,
+    ).inc()
+
+
+def track_order_duration(service_name: str, duration: float):
+    """
+    Track order processing duration (how long from creation to confirmation/cancellation).
+    
+    Args:
+        service_name: Name of the service (e.g., "order-service")
+        duration: Time in seconds from order creation to completion
+    
+    Usage:
+        track_order_duration("order-service", 2.5)  # 2.5 second order processing
+    """
+    order_processing_duration_seconds.labels(
+        service=service_name,
+    ).observe(duration)
+
+
+def order_duration_tracker():
+    """
+    Context manager for tracking order processing duration.
+    
+    Usage:
+        with order_duration_tracker("order-service"):
+            # ... order processing code ...
+    """
+    class OrderDurationContext:
+        def __init__(self, service_name):
+            self.service_name = service_name
+            self.start_time = None
+        
+        def __enter__(self):
+            self.start_time = time.time()
+            return self
+        
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            duration = time.time() - self.start_time
+            track_order_duration(self.service_name, duration)
+            return False
+    
+    return OrderDurationContext
+
+
+def track_payment_status(service_name: str, status: str):
+    """
+    Track payment processing status.
+    
+    Usage:
+        track_payment_status("payment-service", "success")
+        track_payment_status("payment-service", "failed")
+    """
+    payment_processing_total.labels(
+        service=service_name,
+        status=status,
+    ).inc()
+
+
+def track_inventory_reservation(
+    service_name: str,
+    product_id: str,
+    status: str,
+):
+    """
+    Track inventory reservation attempts.
+    
+    Usage:
+        track_inventory_reservation("inventory-service", "prod_123", "success")
+        track_inventory_reservation("inventory-service", "prod_456", "failed")
+    """
+    inventory_reservation_total.labels(
+        service=service_name,
+        product_id=product_id,
+        status=status,
+    ).inc()
+
+
+def update_stock_level(
+    service_name: str,
+    product_id: str,
+    quantity: int,
+    warehouse: str = "us-west-2",
+):
+    """
+    Update current stock level gauge.
+    
+    Usage:
+        update_stock_level("inventory-service", "prod_123", 45)
+    """
+    stock_level_gauge.labels(
+        service=service_name,
+        product_id=product_id,
+        warehouse=warehouse,
+    ).set(quantity)
+
+
+def track_notification(
+    service_name: str,
+    notification_type: str,
+    status: str,
+    duration: Optional[float] = None,
+):
+    """
+    Track notification sending.
+    
+    Args:
+        service_name: Service name (e.g., "notification-service")
+        notification_type: Type of notification (e.g., "email", "sms")
+        status: Sending status ("sent", "failed", etc.)
+        duration: Optional processing duration in seconds
+    
+    Usage:
+        track_notification("notification-service", "email", "sent")
+        track_notification("notification-service", "email", "failed")
+        track_notification("notification-service", "email", "sent", duration=0.145)
+    """
+    notification_sent_total.labels(
+        service=service_name,
+        type=notification_type,
+        status=status,
+    ).inc()
+    
+    # Track duration if provided
+    if duration is not None:
+        notification_processing_duration_seconds.labels(
+            service=service_name,
+            type=notification_type,
+        ).observe(duration)
+
+
+def track_notification_event_type(service_name: str, event_type: str):
+    """
+    Track notifications by event type (for Notification Type Distribution panel).
+    
+    Args:
+        service_name: Name of the service (e.g., "notification-service")
+        event_type: Type of event that triggered the notification
+                   (e.g., "order.confirmed", "order.fulfilled", "order.cancelled", 
+                    "inventory.low", "inventory.depleted")
+    
+    Usage:
+        track_notification_event_type("notification-service", "order.confirmed")
+        track_notification_event_type("notification-service", "order.fulfilled")
+        track_notification_event_type("notification-service", "order.cancelled")
+        track_notification_event_type("notification-service", "inventory.low")
+        track_notification_event_type("notification-service", "inventory.depleted")
+    """
+    notification_event_type_total.labels(
+        service=service_name,
+        event_type=event_type,
+    ).inc()
+
+
+def notification_duration_tracker(service_name: str, notification_type: str):
+    """
+    Context manager to track notification processing duration.
+    
+    Usage:
+        with notification_duration_tracker("notification-service", "email") as tracker:
+            result = email_sender.send_email(...)
+            tracker.set_status("sent" if result else "failed")
+    
+    Or use with explicit duration:
+        from time import time
+        start = time()
+        email_sent = email_sender.send_email(...)
+        duration = time() - start
+        track_notification("notification-service", "email", "sent", duration=duration)
+    """
+    class DurationTracker:
+        def __init__(self):
+            self.start_time = time.time()
+            self.status = "unknown"
+        
+        def set_status(self, status):
+            self.status = status
+        
+        def __enter__(self):
+            return self
+        
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            duration = time.time() - self.start_time
+            track_notification(service_name, notification_type, self.status, duration=duration)
+    
+    return DurationTracker()
+
+
+def track_cart_operation(service_name: str, operation: str):
+    """
+    Track cart operations.
+    
+    Usage:
+        track_cart_operation("cart-service", "add_item")
+        track_cart_operation("cart-service", "remove_item")
+        track_cart_operation("cart-service", "checkout")
+    """
+    cart_operations_total.labels(
+        service=service_name,
+        operation=operation,
+    ).inc()
+
+
+def track_kafka_message(
+    service_name: str,
+    topic: str,
+    published: bool = False,
+    success: bool = True,
+):
+    """
+    Track Kafka message publishing and consumption.
+    
+    Usage:
+        track_kafka_message("order-service", "orders", published=True, success=True)
+        track_kafka_message("payment-service", "payments", published=True, success=False)
+    """
+    if published:
+        status = "success" if success else "failed"
+        kafka_message_published_total.labels(
+            service=service_name,
+            topic=topic,
+            status=status,
+        ).inc()
+    else:
+        kafka_message_consumed_total.labels(
+            service=service_name,
+            topic=topic,
+        ).inc()
+
+
+def track_kafka_error(
+    service_name: str,
+    topic: str,
+    error_type: str,
+):
+    """
+    Track Kafka errors.
+    
+    Usage:
+        track_kafka_error("payment-service", "payments", "timeout")
+        track_kafka_error("order-service", "orders", "serialization_error")
+    """
+    kafka_produce_errors_total.labels(
+        service=service_name,
+        topic=topic,
+        error_type=error_type,
+    ).inc()
+
+
+def track_deduplicated_event(service_name: str):
+    """
+    Track deduplicated events (idempotency).
+    
+    Usage:
+        track_deduplicated_event("order-service")
+    """
+    processed_events_deduplicated_total.labels(service=service_name).inc()

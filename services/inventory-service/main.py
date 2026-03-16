@@ -147,7 +147,12 @@ from fastapi.responses import Response  # For metrics endpoint
 
 # Import prometheus metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from shared.metrics import add_metrics_middleware
+from shared.metrics import (
+    add_metrics_middleware,
+    track_inventory_reservation,
+    update_stock_level,
+    track_kafka_message,
+)
 
 # Import local schemas for input/output validation
 from schemas import HealthResponse, ProductSchema, ProductsListResponse  # Pydantic models
@@ -311,12 +316,21 @@ async def lifespan(app: FastAPI):
                 if all_items_reserved:
                     # ALL items successfully reserved - publish ONE inventory.reserved event for the entire order
                     # Include all items in the event so payment service knows what to charge for
+                    
+                    # Track successful inventory reservations
+                    for item in reserved_items:
+                        track_inventory_reservation("inventory-service", item['product_id'], "success")
+                        # Update stock level gauge
+                        current_stock = repo.get_stock_level(item['product_id'])
+                        update_stock_level("inventory-service", item['product_id'], current_stock)
+                    
                     reserved_event = InventoryReservedEvent(
                         order_id=event.order_id,
                         items=reserved_items,  # Pass all successfully reserved items
                         correlation_id=event.correlation_id,
                     )
                     producer.publish("inventory.reserved", reserved_event)
+                    track_kafka_message("inventory-service", "inventory.reserved", published=True, success=True)
                     logger.info(f"All {len(reserved_items)} items reserved for order {event.order_id}")
                     
                     # Publish low stock alerts for all products that crossed the threshold
@@ -331,12 +345,16 @@ async def lifespan(app: FastAPI):
                         logger.info(f"Product {product_info['product_id']} stock is low ({product_info['current_stock']} units remaining)")
                 else:
                     # ONE OR MORE items failed to reserve - publish ONE inventory.depleted event to cancel order
+                    # Track failed inventory reservation
+                    track_inventory_reservation("inventory-service", failed_product_id, "failed")
+                    
                     depleted_event = InventoryDepletedEvent(
                         order_id=event.order_id,
                         product_id=failed_product_id,
                         correlation_id=event.correlation_id,
                     )
                     producer.publish("inventory.depleted", depleted_event)
+                    track_kafka_message("inventory-service", "inventory.depleted", published=True, success=True)
                     logger.info(f"Order {event.order_id} cancelled: insufficient stock for product {failed_product_id}")
 
             elif event.event_type == "order.cancelled":

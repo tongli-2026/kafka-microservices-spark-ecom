@@ -180,6 +180,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from repository import OrderRepository
+from shared.metrics import (
+    track_order_status,
+    track_order_duration,
+    track_saga_step,
+    track_saga_compensation,
+    track_deduplicated_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +204,8 @@ class SagaHandler:
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
+            # Track deduplicated event
+            track_deduplicated_event("order-service")
             return
 
         # Create order from cart
@@ -207,6 +216,9 @@ class SagaHandler:
             total_amount=event.total_amount,
             correlation_id=event.correlation_id,  # Store correlation_id for saga tracing
         )
+
+        # Track order creation
+        track_order_status("order-service", "created")
 
         # Create and add outbox event
         order_created_event = {
@@ -233,6 +245,9 @@ class SagaHandler:
         # Commit transaction
         self.db.commit()
         logger.info(f"Order saga started for order {order.order_id}")
+        
+        # Track saga step (inventory reservation coming next)
+        track_saga_step("order-service", "inventory", success=None)
     
     def handle_inventory_reserved(self, event) -> None:
         """
@@ -243,6 +258,8 @@ class SagaHandler:
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
+            # Track deduplicated event
+            track_deduplicated_event("order-service")
             return
 
         order = self.repo.get_order(event.order_id)
@@ -252,6 +269,9 @@ class SagaHandler:
 
         # Update order status to reflect inventory is reserved
         self.repo.update_order_status(event.order_id, "RESERVATION_CONFIRMED")
+
+        # Track successful inventory reservation step
+        track_saga_step("order-service", "inventory", success=True)
 
         # Create outbox event to trigger payment processing
         # Now that inventory is reserved, we can safely process payment
@@ -286,6 +306,8 @@ class SagaHandler:
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
+            # Track deduplicated event
+            track_deduplicated_event("order-service")
             return
 
         # Get order details
@@ -296,6 +318,11 @@ class SagaHandler:
 
         # Cancel order (PENDING → CANCELLED)
         self.repo.update_order_status(event.order_id, "CANCELLED")
+
+        # Track failed inventory reservation step (and compensation via cancellation)
+        track_saga_step("order-service", "inventory", success=False)
+        track_saga_compensation("order-service", "inventory")
+        track_order_status("order-service", "cancelled")
 
         # Create outbox event to notify customer of cancellation
         # Include cancellation_source to help downstream services understand WHY it was cancelled
@@ -328,6 +355,8 @@ class SagaHandler:
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
+            # Track deduplicated event
+            track_deduplicated_event("order-service")
             return
 
         order = self.repo.get_order(event.order_id)
@@ -336,6 +365,24 @@ class SagaHandler:
             return
 
         self.repo.update_order_status(event.order_id, "PAID")
+
+        # Track successful payment step
+        track_saga_step("order-service", "payment", success=True)
+        track_order_status("order-service", "confirmed")
+        
+        # Track order processing duration (from creation to payment completion)
+        if order.created_at:
+            # Handle both naive and aware datetimes
+            now = datetime.now(ZoneInfo("America/Los_Angeles"))
+            created_at = order.created_at
+            
+            # If created_at is naive, make it aware by assuming it's in LA timezone
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+            
+            duration = (now - created_at).total_seconds()
+            track_order_duration("order-service", duration)
+            logger.info(f"Order {event.order_id} processing duration: {duration:.2f}s")
 
         # Create outbox event
         order_confirmed_event = {
@@ -364,6 +411,8 @@ class SagaHandler:
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
+            # Track deduplicated event
+            track_deduplicated_event("order-service")
             return
 
         order = self.repo.get_order(event.order_id)
@@ -372,6 +421,11 @@ class SagaHandler:
             return
 
         self.repo.update_order_status(event.order_id, "CANCELLED")
+
+        # Track failed payment step and compensation (inventory release)
+        track_saga_step("order-service", "payment", success=False)
+        track_saga_compensation("order-service", "payment")
+        track_order_status("order-service", "cancelled")
 
         # Create outbox event
         # Include cancellation_source to help downstream services understand WHY it was cancelled

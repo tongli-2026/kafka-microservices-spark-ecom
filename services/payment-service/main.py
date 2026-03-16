@@ -97,6 +97,9 @@ from shared.metrics import (
     payment_processing_duration_seconds,
     idempotency_cache_hits_total,
     idempotency_cache_misses_total,
+    track_payment_status,
+    track_cache_hit,
+    track_kafka_message,
 )
 
 # Import local schemas for input/output validation
@@ -210,8 +213,13 @@ async def lifespan(app: FastAPI):
             existing_payment = repo.get_payment_by_order(event.order_id)
             if existing_payment:
                 logger.info(f"Payment already processed for order {event.order_id} - skipping duplicate")
+                # Track idempotency cache hit
+                track_cache_hit("idempotency", "payment-service", hit=True)
                 db.close()
                 return
+
+            # Track idempotency cache miss
+            track_cache_hit("idempotency", "payment-service", hit=False)
 
             # Process payment
             success, reason = PaymentProcessor.process_payment(event.total_amount)
@@ -227,6 +235,9 @@ async def lifespan(app: FastAPI):
                     status="SUCCESS",
                 )
 
+                # Track payment success
+                track_payment_status("payment-service", "success")
+
                 # Publish payment.processed event
                 payment_event = PaymentProcessedEvent(
                     payment_id=payment.payment_id,
@@ -238,6 +249,8 @@ async def lifespan(app: FastAPI):
                     correlation_id=event.correlation_id,
                 )
                 producer.publish("payment.processed", payment_event)
+                # Track Kafka message publication
+                track_kafka_message("payment-service", "payment.processed", published=True, success=True)
 
             else:
                 # Create failed payment record
@@ -251,6 +264,9 @@ async def lifespan(app: FastAPI):
                     reason=reason,
                 )
 
+                # Track payment failure
+                track_payment_status("payment-service", "failed")
+
                 # Publish payment.failed event
                 payment_event = PaymentFailedEvent(
                     order_id=event.order_id,
@@ -259,6 +275,8 @@ async def lifespan(app: FastAPI):
                     correlation_id=event.correlation_id,
                 )
                 producer.publish("payment.failed", payment_event)
+                # Track Kafka message publication
+                track_kafka_message("payment-service", "payment.failed", published=True, success=True)
 
             db.commit()
             db.close()

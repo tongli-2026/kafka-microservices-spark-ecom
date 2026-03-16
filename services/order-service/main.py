@@ -104,7 +104,15 @@ from fastapi.responses import Response  # For metrics endpoint
 
 # Import prometheus metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from shared.metrics import add_metrics_middleware
+from shared.metrics import (
+    add_metrics_middleware,
+    track_order_status,
+    track_saga_step,
+    track_saga_compensation,
+    track_deduplicated_event,
+    track_kafka_message,
+    update_saga_gauge,
+)
 
 # Import local schemas for input/output validation
 from schemas import HealthResponse, OrderResponse, UserOrdersResponse  # Pydantic models

@@ -387,12 +387,27 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[1m])) by (service)",
-          "legendFormat": "{{ service }}",
+          "expr": "sum(rate(http_requests_total{job=~\".*-service\"}[1m])) by (job)",
+          "legendFormat": "HTTP ({{ job }})",
           "refId": "A"
+        },
+        {
+          "expr": "sum(rate(payment_processing_total[1m])) by (service)",
+          "legendFormat": "Payment ({{ service }})",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(order_processing_total[1m])) by (service)",
+          "legendFormat": "Order ({{ service }})",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(cart_operations_total[1m])) by (service)",
+          "legendFormat": "Cart ({{ service }})",
+          "refId": "D"
         }
       ],
-      "title": "Request Rate by Service",
+      "title": "Request Rate by Service (Enhanced with Business Operations)",
       "type": "timeseries"
     },
     {
@@ -445,12 +460,32 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le)) * 1000",
-          "legendFormat": "{{ service }} p95",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~\".*-service\"}[5m])) by (job, le)) * 1000",
+          "legendFormat": "HTTP {{ job }} p95",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(payment_processing_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "Payment Processing p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "Order Processing p95",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(inventory_reservation_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "Inventory Reservation p95",
+          "refId": "D"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(notification_processing_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "Email Processing p95",
+          "refId": "E"
         }
       ],
-      "title": "P95 Latency by Service (ms)",
+      "title": "P95 Latency by Service & Business Operations (ms) - ENHANCED",
       "type": "timeseries"
     },
     {
@@ -499,12 +534,32 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[1m])) by (service, endpoint)",
-          "legendFormat": "{{ service }} {{ endpoint }}",
+          "expr": "sum(rate(http_requests_total{job=~\".*-service\"}[1m])) by (endpoint)",
+          "legendFormat": "{{ endpoint }}",
           "refId": "A"
+        },
+        {
+          "expr": "sum(rate(cart_operations_total[1m])) by (operation)",
+          "legendFormat": "cart.{{ operation }}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(payment_processing_total[1m])) by (status)",
+          "legendFormat": "payment.{{ status }}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(order_processing_total[1m])) by (status)",
+          "legendFormat": "order.{{ status }}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(inventory_reservation_total[1m])) by (status)",
+          "legendFormat": "inventory.reserve.{{ status }}",
+          "refId": "E"
         }
       ],
-      "title": "Request Rate by Endpoint",
+      "title": "Request Rate by Endpoint & Operations (ENHANCED) - Shows: Carts, Payments, Orders, Inventory",
       "type": "timeseries"
     },
     {
@@ -553,12 +608,32 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[5m])) by (service)",
-          "legendFormat": "{{ service }}",
+          "expr": "sum(rate(http_requests_total{job=~\".*-service\"}[5m])) by (job)",
+          "legendFormat": "{{ job }}",
           "refId": "A"
+        },
+        {
+          "expr": "sum(rate(payment_processing_total{status=\"success\"}[5m]))",
+          "legendFormat": "Successful Payments",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(order_processing_total{status=\"confirmed\"}[5m]))",
+          "legendFormat": "Completed Orders",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(cart_operations_total{operation=\"checkout\"}[5m]))",
+          "legendFormat": "Cart Checkouts",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(saga_compensation_total[5m]))",
+          "legendFormat": "Saga Compensations (Rollbacks)",
+          "refId": "E"
         }
       ],
-      "title": "Traffic Distribution by Service",
+      "title": "Traffic Distribution - Services & Business Operations (Success/Completion Breakdown)",
       "type": "piechart"
     }
   ],

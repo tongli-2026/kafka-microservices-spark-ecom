@@ -57,6 +57,7 @@ import sys
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import time
 
 from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
@@ -64,7 +65,13 @@ from fastapi.responses import Response  # For metrics endpoint
 
 # Import prometheus metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from shared.metrics import add_metrics_middleware
+from shared.metrics import (
+    add_metrics_middleware,
+    track_notification,
+    track_notification_event_type,
+    track_kafka_message,
+    notification_duration_tracker,
+)
 
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -130,6 +137,9 @@ async def lifespan(app: FastAPI):
             recipient_email = None
             
             if event.event_type == "order.confirmed":
+                # Track notification event type
+                track_notification_event_type("notification-service", "order.confirmed")
+                
                 # Send order confirmation email to user
                 subject = f"Order Confirmed #{event.order_id}"
                 body = f"""
@@ -146,9 +156,16 @@ Best regards,
 Kafka E-Commerce Team
 """
                 recipient_email = f"{event.user_id}@example.com"
+                start_time = time()
                 email_sent = email_sender.send_email(recipient_email, subject, body)
+                duration = time() - start_time
+                # Track notification with duration
+                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
 
             elif event.event_type == "order.fulfilled":
+                # Track notification event type
+                track_notification_event_type("notification-service", "order.fulfilled")
+                
                 # Send order fulfillment/shipment email with tracking number to user
                 subject = f"Your Order is On the Way! Order #{event.order_id}"
                 tracking_number = getattr(event, 'tracking_number', 'N/A')
@@ -169,9 +186,16 @@ Best regards,
 Kafka E-Commerce Team
 """
                 recipient_email = f"{event.user_id}@example.com"
+                start_time = time()
                 email_sent = email_sender.send_email(recipient_email, subject, body)
+                duration = time() - start_time
+                # Track notification with duration
+                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
 
             elif event.event_type == "order.cancelled":
+                # Track notification event type
+                track_notification_event_type("notification-service", "order.cancelled")
+                
                 # Send order cancellation email to user with clear explanation based on cancellation source
                 reason = getattr(event, 'reason', 'Unknown reason')
                 cancellation_source = getattr(event, 'cancellation_source', 'unknown')
@@ -229,10 +253,17 @@ Kafka E-Commerce Team
                 
                 logger.info(f"Sending order cancellation email for order_id={event.order_id}, user_id={event.user_id}, reason={cancellation_source}")
                 recipient_email = f"{event.user_id}@example.com"
+                start_time = time()
                 email_sent = email_sender.send_email(recipient_email, subject, body)
+                duration = time() - start_time
+                # Track notification with duration
+                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
                 logger.info(f"Successfully sent order cancellation email for order_id={event.order_id}")
 
             elif event.event_type == "inventory.low":
+                # Track notification event type
+                track_notification_event_type("notification-service", "inventory.low")
+                
                 # Send low stock alert to admin
                 subject = f"Low Stock Alert: Product #{event.product_id}"
                 body = f"""
@@ -247,9 +278,16 @@ Please restock or re-evaluate this product.
 Kafka E-Commerce Team
 """
                 recipient_email = settings.admin_email
+                start_time = time()
                 email_sent = email_sender.send_email(recipient_email, subject, body)
+                duration = time() - start_time
+                # Track notification with duration
+                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
 
             elif event.event_type == "inventory.depleted":
+                # Track notification event type
+                track_notification_event_type("notification-service", "inventory.depleted")
+                
                 # Send out-of-stock or insufficient stock alert to admin
                 subject = f"Out of Stock or Insufficient Stock Alert: Product #{event.product_id}"
                 product_id = getattr(event, 'product_id', 'Unknown')
@@ -265,7 +303,11 @@ Please restock or re-evaluate this product immediately.
 Kafka E-Commerce Team
 """
                 recipient_email = settings.admin_email
+                start_time = time()
                 email_sent = email_sender.send_email(recipient_email, subject, body)
+                duration = time() - start_time
+                # Track notification with duration
+                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
 
             # Publish notification.send event to Kafka to track all notification processing
             # Always publish for every event received, regardless of success/failure
