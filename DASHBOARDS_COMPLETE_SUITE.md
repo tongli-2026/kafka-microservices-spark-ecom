@@ -116,29 +116,34 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 ## 5. Infrastructure Health Dashboard
 **URL:** `http://localhost:3000/d/infrastructure-health-dashboard`  
 **For:** DevOps/SRE Team  
-**Focus:** System health, resource usage, and infrastructure metrics
+**Focus:** System health, request processing, and real-time infrastructure metrics
 
-### Panels:
-- **Service Health Status:** 5 status cards
-  - Payment Service
-  - Order Service
-  - Inventory Service
-  - Notification Service
-  - Cart Service
+### Panels (4 total):
 
-- **Performance Metrics:**
-  - Request latency distribution (P50/P95/P99)
-  - Cache hit rate (gauge)
-  - Kafka message lag (timeseries)
-  - Database connection pool usage (timeseries)
+**Row 1 - Service Health & Event Processing:**
+1. Error Rate by Service (%) - 5xx error rates per service with aggregation
+2. Kafka Message Publishing Rate - Messages/sec by topic
+
+**Row 2 - Reliability & Performance:**
+3. Idempotency Cache Misses Rate - Cache miss frequency (lower is better)
+4. Average HTTP Request Latency - Mean request duration across all services in ms
 
 **Key Metrics:**
-- ✅ All services: UP (green)
-- ✅ Cache hit rate: Target > 80%
-- ✅ Message lag: Monitor for backlog
-- ✅ DB connections: Monitor pool saturation
+- ✅ Error rate by service: Monitor for failures (alert if > 5%)
+- ✅ Kafka throughput: Monitor event processing load
+- ✅ Cache misses: Lower is better (indicates good caching effectiveness)
+- ✅ Avg latency: Monitor for degradation (baseline: ~50-100ms)
 
-**Use Case:** Monitor infrastructure health, resource utilization, and system performance
+**Unique Focus:**
+- **Error Rate by Service** - Shows which services are struggling with failures (5xx errors)
+- **Kafka Message Publishing** - Real-time event flow throughput by topic
+- **Idempotency Cache Misses** - Infrastructure reliability metric (not in other dashboards)
+- **Average Latency** - Complements Microservices Dashboard P95 latency with mean performance
+- **No latency percentiles** - P95/P99 latency is covered by Microservices Dashboard
+- **No service status cards** - Those belong in the Microservices Dashboard
+- **Infrastructure-focused** - Only metrics that measure system health and operational efficiency
+
+**Use Case:** Monitor real-time infrastructure health, event processing throughput, service error rates, and overall system performance during operations
 
 ---
 
