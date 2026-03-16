@@ -246,7 +246,7 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (sum(rate(payment_processing_total{status='completed'}[5m])) / (sum(rate(payment_processing_total[5m])) + 0.001))",
+          "expr": "100 * (sum(rate(payment_processing_total{status='success'}[5m])) / (sum(rate(payment_processing_total[5m])) + 0.001))",
           "refId": "A"
         }
       ],
