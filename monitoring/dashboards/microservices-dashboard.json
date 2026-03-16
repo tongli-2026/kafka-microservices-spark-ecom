@@ -644,48 +644,51 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "value"
+            "mode": "palette-classic"
           },
           "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Stock Level",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
             },
-            "inspect": false
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
                 "color": "green",
-                "value": 20
+                "value": null
               }
             ]
-          }
+          },
+          "unit": "short"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 80
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -695,47 +698,26 @@
       },
       "id": 19,
       "options": {
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": true
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showHeader": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
-      "pluginVersion": "10.0.0",
       "targets": [
         {
           "expr": "inventory_stock_level",
-          "format": "table",
-          "instant": true,
+          "legendFormat": "{{product_id}}",
           "refId": "A"
         }
       ],
       "title": "Inventory Stock Levels by Product",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "exclude": [
-              "Time",
-              "__name__",
-              "instance",
-              "job",
-              "service"
-            ],
-            "indexByName": {},
-            "renameByName": {
-              "product_id": "Product ID",
-              "warehouse": "Warehouse",
-              "Value": "Stock Level"
-            }
-          }
-        }
-      ],
-      "type": "table"
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
