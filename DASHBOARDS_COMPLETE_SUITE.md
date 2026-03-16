@@ -92,29 +92,37 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 ## 4. Customer Experience Dashboard
 **URL:** `http://localhost:3000/d/customer-experience-dashboard`  
 **For:** Product/UX Team  
-**Focus:** Customer journey, order processing, and notification delivery
+**Focus:** Customer behavior, payment success, and endpoint performance
 
 ### Panels (5 total):
 
-**Row 1 - Success & Latency Metrics:**
-1. Notification Delivery Success Rate (%) - Gauge showing email delivery success
-2. Order Processing Latency (P95 ms) - Timeseries of order processing latency trends
+**Row 1 - Customer Activity:**
+1. Cart Operations Breakdown (by type) - Add/Remove/Update frequency
+2. Order Processing Throughput (orders/sec) - Real-time order volume
 
-**Row 2 - Customer Activity:**
-3. Order Processing Throughput (orders/sec) - Real-time order rate
-4. Cart Operations Breakdown - Adds/removes/updates by operation type
+**Row 2 - Customer Success Metrics:**
+3. Payment Success Rate (%) - Gauge showing checkout completion success
+4. Request Success Rate by Service - 200 OK responses per service
 
-**Row 3 - Notification Intelligence:**
-5. Notification Events by Type - Event distribution (order.confirmed, order.fulfilled, etc.)
+**Row 3 - Customer Journeys:**
+5. Traffic by Customer-Facing Endpoints - Shows which features customers use most
 
 **Key Metrics:**
-- ✅ Notification delivery: Target > 95%
-- ✅ Order latency P95: < 500ms (target for good UX)
-- ✅ Order throughput: Monitor for spikes and trends
 - ✅ Cart operations: Understand customer behavior (adds vs removes)
-- ✅ Notification events: See what events trigger notifications
+- ✅ Order throughput: Monitor customer activity level
+- ✅ Payment success: Target > 95% (critical for revenue)
+- ✅ Service success rates: Identify which services are failing customers
+- ✅ Endpoint traffic: See which features are most popular
 
-**Use Case:** Product/UX teams monitor customer experience through order processing speed, cart behavior, and notification delivery success. Identify performance bottlenecks affecting user satisfaction.
+**Unique Focus:**
+- **Payment Success Rate** - From customer perspective (order completion)
+- **Request Success Rate by Service** - From customer perspective (successful interactions)
+- **Traffic by Endpoints** - Show customer journey and feature adoption
+- **Cart Operations** - Understand what customers do with carts
+- **Order Throughput** - Customer activity level
+- **NOT duplicating Order Fulfillment** - Which focuses on operational flow (saga, compensation)
+
+**Use Case:** Product/UX teams monitor customer satisfaction through payment success, service reliability from customer perspective, and understand which features customers engage with most.
 
 ---
 

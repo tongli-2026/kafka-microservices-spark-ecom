@@ -30,69 +30,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "green",
-                "value": 85
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "expr": "100 * (sum(rate(notification_sent_total{status='sent'}[5m])) / (sum(rate(notification_sent_total[5m])) + 0.001))",
-          "refId": "A"
-        }
-      ],
-      "title": "Notification Delivery Success Rate (%)",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -135,22 +72,22 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "reqps"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
+        "x": 0,
         "y": 0
       },
-      "id": 2,
+      "id": 1,
       "options": {
         "legend": {
           "calcs": [
             "mean",
-            "max"
+            "last"
           ],
           "displayMode": "list",
           "placement": "bottom"
@@ -161,12 +98,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "Order Processing P95",
+          "expr": "sum(rate(cart_operations_total[5m])) by (operation)",
+          "legendFormat": "{{ operation }}",
           "refId": "A"
         }
       ],
-      "title": "Order Processing Latency (P95 ms)",
+      "title": "Cart Operations Breakdown (by type)",
       "type": "timeseries"
     },
     {
@@ -226,10 +163,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 8
+        "x": 12,
+        "y": 0
       },
-      "id": 3,
+      "id": 2,
       "options": {
         "legend": {
           "calcs": [
@@ -261,6 +198,69 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(payment_processing_total{status='completed'}[5m])) / (sum(rate(payment_processing_total[5m])) + 0.001))",
+          "refId": "A"
+        }
+      ],
+      "title": "Payment Success Rate (%)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -303,7 +303,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -318,7 +318,7 @@
         "legend": {
           "calcs": [
             "mean",
-            "last"
+            "max"
           ],
           "displayMode": "list",
           "placement": "bottom"
@@ -329,12 +329,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(cart_operations_total[5m])) by (operation)",
-          "legendFormat": "{{ operation }}",
+          "expr": "sum(rate(http_requests_total{status='200', job=~'.*-service'}[5m])) by (job) / (sum(rate(http_requests_total{job=~'.*-service'}[5m])) by (job) + 0.0001)",
+          "legendFormat": "{{ job }} Success Rate",
           "refId": "A"
         }
       ],
-      "title": "Cart Operations Breakdown",
+      "title": "Request Success Rate by Service",
       "type": "timeseries"
     },
     {
@@ -387,7 +387,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -413,12 +413,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(notification_event_type_total[5m])) by (event_type)",
-          "legendFormat": "{{ event_type }}",
+          "expr": "sum(rate(http_requests_total{job=~'.*-service'}[5m])) by (endpoint)",
+          "legendFormat": "{{ endpoint }}",
           "refId": "A"
         }
       ],
-      "title": "Notification Events by Type",
+      "title": "Traffic by Customer-Facing Endpoints",
       "type": "timeseries"
     }
   ],
