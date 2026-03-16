@@ -36,16 +36,16 @@
             "mode": "percentage",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 30
+                "value": 70
               },
               {
-                "color": "red",
-                "value": 50
+                "color": "green",
+                "value": 85
               }
             ]
           },
@@ -55,7 +55,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 6,
+        "w": 12,
         "x": 0,
         "y": 0
       },
@@ -78,131 +78,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (1 - (sum(rate(cart_abandonment_total[5m])) / sum(rate(cart_add_total[5m]))))",
+          "expr": "100 * (sum(rate(notification_sent_total{status='sent'}[5m])) / (sum(rate(notification_sent_total[5m])) + 0.001))",
           "refId": "A"
         }
       ],
-      "title": "Cart Abandonment Rate (%)",
+      "title": "Notification Delivery Success Rate (%)",
       "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "green",
-                "value": 70
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "expr": "100 * (sum(rate(order_processing_total{status=\"completed\"}[5m])) / sum(rate(order_processing_total[5m])))",
-          "refId": "A"
-        }
-      ],
-      "title": "Checkout Conversion Rate (%)",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": false,
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "expr": "avg(order_value_dollars_bucket)",
-          "refId": "A"
-        }
-      ],
-      "title": "Average Order Value",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -254,17 +135,17 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "ms"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 8
+        "x": 12,
+        "y": 0
       },
-      "id": 4,
+      "id": 2,
       "options": {
         "legend": {
           "calcs": [
@@ -280,86 +161,13 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(cart_add_total[5m]))",
-          "legendFormat": "Add to Cart",
+          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "Order Processing P95",
           "refId": "A"
-        },
-        {
-          "expr": "sum(rate(cart_checkout_total[5m]))",
-          "legendFormat": "Checkout",
-          "refId": "B"
-        },
-        {
-          "expr": "sum(rate(cart_abandonment_total[5m]))",
-          "legendFormat": "Abandoned",
-          "refId": "C"
         }
       ],
-      "title": "Customer Journey Funnel",
+      "title": "Order Processing Latency (P95 ms)",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 85
-              },
-              {
-                "color": "green",
-                "value": 95
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "expr": "100 * (sum(rate(notification_sent_total{status=\"sent\"}[5m])) / sum(rate(notification_sent_total[5m])))",
-          "refId": "A"
-        }
-      ],
-      "title": "Notification Delivery Success Rate (%)",
-      "type": "gauge"
     },
     {
       "datasource": {
@@ -378,7 +186,7 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 5,
+            "fillOpacity": 10,
             "gradientMode": "none",
             "hideFrom": {
               "tooltip": false,
@@ -411,7 +219,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -419,14 +227,14 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 8
       },
-      "id": 6,
+      "id": 3,
       "options": {
         "legend": {
           "calcs": [
             "mean",
-            "max"
+            "last"
           ],
           "displayMode": "list",
           "placement": "bottom"
@@ -437,17 +245,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "P95 Order Processing",
+          "expr": "sum(rate(order_processing_total[5m]))",
+          "legendFormat": "Order Throughput",
           "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{endpoint=~\"/cart.*\"}[5m])) * 1000",
-          "legendFormat": "P95 Cart Operations",
-          "refId": "B"
         }
       ],
-      "title": "Customer Experience Latency (P95)",
+      "title": "Order Processing Throughput (orders/sec)",
       "type": "timeseries"
     },
     {
@@ -508,14 +311,14 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 8
       },
-      "id": 7,
+      "id": 4,
       "options": {
         "legend": {
           "calcs": [
             "mean",
-            "max"
+            "last"
           ],
           "displayMode": "list",
           "placement": "bottom"
@@ -526,22 +329,96 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(cart_operations_total{operation=\"add\"}[5m]))",
-          "legendFormat": "Add to Cart",
+          "expr": "sum(rate(cart_operations_total[5m])) by (operation)",
+          "legendFormat": "{{ operation }}",
           "refId": "A"
-        },
-        {
-          "expr": "sum(rate(cart_operations_total{operation=\"remove\"}[5m]))",
-          "legendFormat": "Remove from Cart",
-          "refId": "B"
-        },
-        {
-          "expr": "sum(rate(cart_operations_total{operation=\"clear\"}[5m]))",
-          "legendFormat": "Clear Cart",
-          "refId": "C"
         }
       ],
       "title": "Cart Operations Breakdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "last"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(notification_event_type_total[5m])) by (event_type)",
+          "legendFormat": "{{ event_type }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Notification Events by Type",
       "type": "timeseries"
     }
   ],
@@ -551,7 +428,7 @@
   "tags": [
     "customer",
     "experience",
-    "funnel"
+    "ux"
   ],
   "templating": {
     "list": []
