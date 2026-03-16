@@ -364,17 +364,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job='payment-service'}[5m])) * 1000",
+          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "P95 Latency",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job='payment-service'}[5m])) * 1000",
+          "expr": "histogram_quantile(0.99, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "P99 Latency",
           "refId": "B"
         }
       ],
-      "title": "Payment Processing Latency (P95/P99)",
+      "title": "Order Processing Latency (P95/P99) - includes payment",
       "type": "timeseries"
     },
     {
@@ -514,11 +514,11 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (sum(rate(idempotency_cache_hits_total[5m])) / (sum(rate(idempotency_cache_hits_total[5m])) + sum(rate(idempotency_cache_misses_total[5m]))))",
+          "expr": "sum(rate(idempotency_cache_misses_total[5m]))",
           "refId": "A"
         }
       ],
-      "title": "Idempotency Cache Hit Rate (%)",
+      "title": "Idempotency Cache Misses Rate (lower is better)",
       "type": "gauge"
     }
   ],
