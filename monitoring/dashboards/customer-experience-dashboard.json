@@ -23,21 +23,6 @@
   "liveNow": false,
   "panels": [
     {
-      "type": "text",
-      "title": "SAGA ORCHESTRATION METRICS",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 100,
-      "options": {
-        "text": "# Saga Orchestration Metrics\n**Key Steps:** Payment → Inventory → Order Confirmation",
-        "mode": "markdown"
-      }
-    },
-    {
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -51,16 +36,16 @@
             "mode": "percentage",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 85
+                "value": 30
               },
               {
-                "color": "green",
-                "value": 95
+                "color": "red",
+                "value": 50
               }
             ]
           },
@@ -70,9 +55,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 4,
+        "w": 6,
         "x": 0,
-        "y": 1
+        "y": 0
       },
       "id": 1,
       "options": {
@@ -93,11 +78,11 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (sum(rate(saga_orchestration_steps_total{step=\"payment\", status=\"success\"}[5m])) / sum(rate(saga_orchestration_steps_total{step=\"payment\"}[5m])))",
+          "expr": "100 * (1 - (sum(rate(cart_abandonment_total[5m])) / sum(rate(cart_add_total[5m]))))",
           "refId": "A"
         }
       ],
-      "title": "Payment Step Success Rate (%)",
+      "title": "Cart Abandonment Rate (%)",
       "type": "gauge"
     },
     {
@@ -119,11 +104,11 @@
               },
               {
                 "color": "yellow",
-                "value": 90
+                "value": 50
               },
               {
                 "color": "green",
-                "value": 95
+                "value": 70
               }
             ]
           },
@@ -133,9 +118,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 4,
-        "x": 4,
-        "y": 1
+        "w": 6,
+        "x": 6,
+        "y": 0
       },
       "id": 2,
       "options": {
@@ -156,11 +141,11 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (sum(rate(inventory_reservation_total{status=\"success\"}[5m])) / sum(rate(inventory_reservation_total[5m])))",
+          "expr": "100 * (sum(rate(order_processing_total{status=\"completed\"}[5m])) / sum(rate(order_processing_total[5m])))",
           "refId": "A"
         }
       ],
-      "title": "Inventory Reservation Success Rate (%)",
+      "title": "Checkout Conversion Rate (%)",
       "type": "gauge"
     },
     {
@@ -171,37 +156,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "mode": "thresholds"
           },
           "mappings": [],
           "thresholds": {
@@ -213,39 +168,41 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "currencyUSD"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 4,
-        "x": 8,
-        "y": 1
+        "w": 6,
+        "x": 12,
+        "y": 0
       },
       "id": 3,
       "options": {
-        "legend": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
           "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
+            "lastNotNull"
+          ]
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "textMode": "auto"
       },
+      "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "P95 Latency",
+          "expr": "avg(order_value_dollars_bucket)",
           "refId": "A"
         }
       ],
-      "title": "Order Processing Latency - P95 (ms)",
-      "type": "timeseries"
+      "title": "Average Order Value",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -304,8 +261,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 1
+        "x": 0,
+        "y": 8
       },
       "id": 4,
       "options": {
@@ -314,7 +271,7 @@
             "mean",
             "max"
           ],
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom"
         },
         "tooltip": {
@@ -323,215 +280,23 @@
       },
       "targets": [
         {
-          "expr": "rate(saga_orchestration_steps_total{step=\"inventory\", status=\"success\"}[1m])",
-          "legendFormat": "Inventory - Success",
+          "expr": "sum(rate(cart_add_total[5m]))",
+          "legendFormat": "Add to Cart",
           "refId": "A"
         },
         {
-          "expr": "rate(saga_orchestration_steps_total{step=\"inventory\", status=\"failure\"}[1m])",
-          "legendFormat": "Inventory - Failure",
+          "expr": "sum(rate(cart_checkout_total[5m]))",
+          "legendFormat": "Checkout",
           "refId": "B"
         },
         {
-          "expr": "rate(saga_orchestration_steps_total{step=\"payment\", status=\"success\"}[1m])",
-          "legendFormat": "Payment - Success",
+          "expr": "sum(rate(cart_abandonment_total[5m]))",
+          "legendFormat": "Abandoned",
           "refId": "C"
-        },
-        {
-          "expr": "rate(saga_orchestration_steps_total{step=\"payment\", status=\"failure\"}[1m])",
-          "legendFormat": "Payment - Failure",
-          "refId": "D"
         }
       ],
-      "title": "Saga Orchestration Steps - Success/Failure Rate",
+      "title": "Customer Journey Funnel",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 9
-      },
-      "id": 5,
-      "options": {
-        "displayLabels": [
-          "name",
-          "percent"
-        ],
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "values": []
-        },
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(order_processing_total[5m])) by (status)",
-          "legendFormat": "{{ status }}",
-          "refId": "A"
-        }
-      ],
-      "title": "Order Status Breakdown - Distribution",
-      "type": "piechart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percentunit"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Compensation - Payment Step"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "yellow"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Compensation - Inventory Step"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 9
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "expr": "rate(saga_compensation_total{step=\"payment\"}[5m])",
-          "legendFormat": "Compensation - Payment Step",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(saga_compensation_total{step=\"inventory\"}[5m])",
-          "legendFormat": "Compensation - Inventory Step",
-          "refId": "B"
-        }
-      ],
-      "title": "Saga Compensation (Rollback) Rate",
-      "type": "timeseries"
-    },
-    {
-      "type": "text",
-      "title": "NOTIFICATION SERVICE METRICS",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 17
-      },
-      "id": 101,
-      "options": {
-        "text": "# Notification Service Metrics\n**Events:** order.confirmed, order.fulfilled, order.cancelled → Email Delivery",
-        "mode": "markdown"
-      }
     },
     {
       "datasource": {
@@ -552,11 +317,11 @@
               },
               {
                 "color": "yellow",
-                "value": 98
+                "value": 85
               },
               {
                 "color": "green",
-                "value": 99
+                "value": 95
               }
             ]
           },
@@ -566,11 +331,11 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 4,
-        "x": 0,
-        "y": 18
+        "w": 12,
+        "x": 12,
+        "y": 8
       },
-      "id": 7,
+      "id": 5,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -589,149 +354,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "100 * (sum(rate(notification_sent_total{type=\"email\", status=\"sent\"}[5m])) / sum(rate(notification_sent_total{type=\"email\"}[5m])))",
+          "expr": "100 * (sum(rate(notification_sent_total{status=\"sent\"}[5m])) / sum(rate(notification_sent_total[5m])))",
           "refId": "A"
         }
       ],
-      "title": "Email Delivery Success Rate (%)",
+      "title": "Notification Delivery Success Rate (%)",
       "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 4,
-        "x": 4,
-        "y": 18
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "expr": "rate(notification_processing_duration_seconds_bucket{le=\"+Inf\"}[5m])",
-          "legendFormat": "Email Throughput",
-          "refId": "A"
-        }
-      ],
-      "title": "Email Processing Throughput (msgs/sec)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 4,
-        "x": 8,
-        "y": 18
-      },
-      "id": 9,
-      "options": {
-        "displayLabels": [
-          "name",
-          "percent"
-        ],
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "values": []
-        },
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(notification_event_type_total[5m])) by (event_type)",
-          "legendFormat": "{{ event_type }}",
-          "refId": "A"
-        }
-      ],
-      "title": "Notification Event Type Distribution",
-      "type": "piechart"
     },
     {
       "datasource": {
@@ -790,10 +418,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 18
+        "x": 0,
+        "y": 16
       },
-      "id": 11,
+      "id": 6,
       "options": {
         "legend": {
           "calcs": [
@@ -809,17 +437,111 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(notification_processing_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "P95 Email Latency",
+          "expr": "histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "P95 Order Processing",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(notification_processing_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "P99 Email Latency",
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{endpoint=~\"/cart.*\"}[5m])) * 1000",
+          "legendFormat": "P95 Cart Operations",
           "refId": "B"
         }
       ],
-      "title": "Email Processing Latency - P95/P99 Over Time",
+      "title": "Customer Experience Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(cart_operations_total{operation=\"add\"}[5m]))",
+          "legendFormat": "Add to Cart",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(cart_operations_total{operation=\"remove\"}[5m]))",
+          "legendFormat": "Remove from Cart",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(cart_operations_total{operation=\"clear\"}[5m]))",
+          "legendFormat": "Clear Cart",
+          "refId": "C"
+        }
+      ],
+      "title": "Cart Operations Breakdown",
       "type": "timeseries"
     }
   ],
@@ -827,21 +549,21 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "order-fulfillment",
-    "saga",
-    "notification"
+    "customer",
+    "experience",
+    "funnel"
   ],
   "templating": {
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Order Fulfillment Dashboard",
-  "uid": "order-fulfillment-dashboard",
-  "version": 1,
+  "title": "Customer Experience Dashboard",
+  "uid": "customer-experience-dashboard",
+  "version": 0,
   "weekStart": ""
 }
