@@ -116,12 +116,12 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 ## 5. Infrastructure Health Dashboard
 **URL:** `http://localhost:3000/d/infrastructure-health-dashboard`  
 **For:** DevOps/SRE Team  
-**Focus:** System health, request processing, and real-time infrastructure metrics
+**Focus:** System health, request outcomes, and infrastructure metrics
 
 ### Panels (4 total):
 
-**Row 1 - Service Health & Event Processing:**
-1. Error Rate by Service (%) - 5xx error rates per service with aggregation
+**Row 1 - Request Health & Event Processing:**
+1. HTTP Status Code Distribution - Success (200) vs other outcomes by rate
 2. Kafka Message Publishing Rate - Messages/sec by topic
 
 **Row 2 - Reliability & Performance:**
@@ -129,21 +129,21 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 4. Average HTTP Request Latency - Mean request duration across all services in ms
 
 **Key Metrics:**
-- ✅ Error rate by service: Monitor for failures (alert if > 5%)
+- ✅ HTTP status distribution: Monitor 200 vs other codes
 - ✅ Kafka throughput: Monitor event processing load
 - ✅ Cache misses: Lower is better (indicates good caching effectiveness)
 - ✅ Avg latency: Monitor for degradation (baseline: ~50-100ms)
 
 **Unique Focus:**
-- **Error Rate by Service** - Shows which services are struggling with failures (5xx errors)
+- **HTTP Status Code Distribution** - Shows outcome distribution (not in other dashboards)
 - **Kafka Message Publishing** - Real-time event flow throughput by topic
 - **Idempotency Cache Misses** - Infrastructure reliability metric (not in other dashboards)
 - **Average Latency** - Complements Microservices Dashboard P95 latency with mean performance
-- **No latency percentiles** - P95/P99 latency is covered by Microservices Dashboard
+- **Request Rate by Service** is already in Microservices Dashboard, so we use status distribution here
 - **No service status cards** - Those belong in the Microservices Dashboard
 - **Infrastructure-focused** - Only metrics that measure system health and operational efficiency
 
-**Use Case:** Monitor real-time infrastructure health, event processing throughput, service error rates, and overall system performance during operations
+**Use Case:** Monitor real-time infrastructure health, HTTP outcomes, event processing throughput, and system performance during operations
 
 ---
 

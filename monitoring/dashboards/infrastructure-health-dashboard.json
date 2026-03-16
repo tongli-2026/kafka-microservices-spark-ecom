@@ -69,14 +69,10 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 0.05
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -102,12 +98,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{status=~'5..', job=~'.*-service'}[5m])) by (job) / (sum(rate(http_requests_total{job=~'.*-service'}[5m])) by (job) + 0.0001)",
-          "legendFormat": "{{ job }} Error Rate",
+          "expr": "sum(rate(http_requests_total{job=~'.*-service'}[5m])) by (status)",
+          "legendFormat": "{{ status }} - Requests/sec",
           "refId": "A"
         }
       ],
-      "title": "Error Rate by Service (%)",
+      "title": "HTTP Status Code Distribution",
       "type": "timeseries"
     },
     {
