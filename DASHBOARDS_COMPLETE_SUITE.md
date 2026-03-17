@@ -14,26 +14,22 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 ### Panels (10 total):
 
 **Row 1 - Service Health Status:**
-1. **Service Status Cards (5):**
-   - Cart Service (UP/DOWN)
-   - Order Service (UP/DOWN)
-   - Payment Service (UP/DOWN)
-   - Inventory Service (UP/DOWN)
-   - Notification Service (UP/DOWN)
+1. Cart Service (UP/DOWN)
+2. Order Service (UP/DOWN)
+3. Payment Service (UP/DOWN)
+4. Inventory Service (UP/DOWN)
+5. Notification Service (UP/DOWN)
 
 **Row 2 - Business Metrics:**
-2. **Inventory Monitoring (1):**
-   - Inventory Stock Levels by Product - Full-width timeseries showing real-time stock levels for 20+ products
+6. Inventory Stock Levels by Product - Full-width timeseries showing real-time stock levels for 20+ products
 
-**Row 3 - Request Performance Metrics (2):**
-3. **Performance Metrics (2):**
-   - Request Rate by Service & Business Operations
-   - P95 Latency by Service & Business Operations (ms)
+**Row 3 - Request Performance Metrics:**
+7. Request Rate by Service & Business Operations
+8. P95 Latency by Service & Business Operations (ms)
 
-**Row 4 - Endpoint Distribution Metrics (2):**
-4. **Endpoint Analysis (2):**
-   - Request Rate by Endpoint & Operations
-   - Traffic Distribution - Services & Business Operations
+**Row 4 - Endpoint Distribution Metrics:**
+9. Request Rate by Endpoint & Operations
+10. Traffic Distribution - Services & Business Operations
 
 **Layout Design:**
 - **Hierarchical Flow:** Health Status → Business Metrics → Performance Details → Endpoint Distribution
