@@ -6,7 +6,9 @@
 | S## Port Conflict Resolution
 
 ✅ **Fixed Conflict**: Spark Master UI moved from 8080 → 9080 to avoid conflict with Kafka UI
-✅ **Fixed Conflict**: Spark Metrics Exporter moved from 9091 → 9096 to avoid conflict with Kafka Broker 3
+✅ **Fixed Conflict**: Spark Metrics Exporter moved from 9091 → 9097 to avoid conflicts with:
+   - Kafka Broker 3 internal port (9091)
+   - Kafka Broker 3 external port (9096)
 
 ## Total Ports Used: 24
 
@@ -38,7 +40,7 @@ All ports are checked and verified to be unique!| Host Port | Container Port | P
 |---------|-----------|----------------|---------|
 | prometheus | 9090 | 9090 | Prometheus metrics & queries |
 | grafana | 3000 | 3000 | Grafana dashboards |
-| spark-metrics-exporter | 9096 | 9090 | Spark analytics metrics exporter |
+| spark-metrics-exporter | 9097 | 9090 | Spark analytics metrics exporter |
 
 ### Database & Cache
 | Service | Host Port | Container Port | Purpose |
@@ -66,7 +68,7 @@ All ports are checked and verified to be unique!| Host Port | Container Port | P
 ### Monitoring UIs
 - **Prometheus**: http://localhost:9090 (metrics queries)
 - **Grafana**: http://localhost:3000 (dashboards - admin/admin)
-- **Spark Metrics Exporter**: http://localhost:9096/metrics (raw metrics)
+- **Spark Metrics Exporter**: http://localhost:9097/metrics (raw metrics)
 
 ### Management UIs
 - **Kafka UI**: http://localhost:8080
