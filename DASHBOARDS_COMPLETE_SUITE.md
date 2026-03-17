@@ -12,6 +12,8 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 **Focus:** Core infrastructure metrics across all services
 
 ### Panels (10 total):
+
+**Row 1 - Service Health Status:**
 1. **Service Status Cards (5):**
    - Cart Service (UP/DOWN)
    - Order Service (UP/DOWN)
@@ -19,14 +21,25 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
    - Inventory Service (UP/DOWN)
    - Notification Service (UP/DOWN)
 
+**Row 2 - Business Metrics:**
 2. **Inventory Monitoring (1):**
-   - Inventory Stock Levels by Product - Real-time table showing product ID, warehouse, and current stock level (20+ products)
+   - Inventory Stock Levels by Product - Full-width timeseries showing real-time stock levels for 20+ products
 
-3. **Performance Metrics (4):**
+**Row 3 - Request Performance Metrics (2):**
+3. **Performance Metrics (2):**
    - Request Rate by Service & Business Operations
    - P95 Latency by Service & Business Operations (ms)
+
+**Row 4 - Endpoint Distribution Metrics (2):**
+4. **Endpoint Analysis (2):**
    - Request Rate by Endpoint & Operations
    - Traffic Distribution - Services & Business Operations
+
+**Layout Design:**
+- **Hierarchical Flow:** Health Status → Business Metrics → Performance Details → Endpoint Distribution
+- **Full-Width Inventory:** 24w width for comprehensive inventory visibility
+- **Balanced Metrics:** 2-column layout for performance and endpoint analysis
+- **Clear Visual Separation:** Related metrics grouped together with logical flow
 
 **Use Case:** High-level overview of system health, performance, and real-time inventory status across all microservices
 
@@ -41,29 +54,29 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 
 **Section 1: Saga Orchestration Metrics (6 panels)**
 
-*Row 1 - Key Success Rate Metrics (3 gauges):*
+*Row 1 - Key Saga Metrics (4-column balanced layout):*
 1. Payment Step Success Rate (%) - Target > 95%
 2. Inventory Reservation Success Rate (%) - Target > 95%
-3. Order Processing Latency (P95 ms) - Timeseries showing latency trend
+3. Order Processing Latency (P95/P99 ms) - Timeseries showing latency trends
+4. Saga Orchestration Steps - Success/Failure rate by step type
 
-*Row 2 - Detailed Orchestration Flow (3 timeseries):*
-4. Saga Orchestration Steps - Success/Failure Rate (payment vs inventory)
-5. Order Status Breakdown - Distribution (created/confirmed/cancelled)
-6. Saga Compensation (Rollback) Rate - Failure pattern tracking
+*Row 2 - Detailed Orchestration Flow (2-column):*
+5. Order Status Breakdown - Distribution of order states (created/confirmed/cancelled)
+6. Saga Compensation (Rollback) Rate - Failure pattern tracking and compensation frequency
 
 **Section 2: Notification Service Metrics (4 panels)**
 
-*Row 3 - Notification Delivery Metrics (4 panels):*
+*Row 3 - Notification Delivery Metrics (4-column balanced layout):*
 7. Email Delivery Success Rate (%) - Target > 95%
-8. Email Processing Throughput (msgs/sec) - Current throughput
-9. Notification Event Type Distribution - Pie chart breakdown
-10. Email Processing Latency - P95/P99 Over Time - Full trend analysis (combines P95 & P99)
+8. Email Processing Throughput (msgs/sec) - Current notification processing volume
+9. Notification Event Type Distribution - Breakdown of event types (order.confirmed, etc.)
+10. Email Processing Latency - P95/P99 Over Time - Full trend analysis
 
 **Layout Design:**
-- **Clean Visual Separation:** Two sections clearly separated with headers
-- **Logical Flow:** Success rates → detailed trends → performance latency
-- **No Redundancy:** Removed duplicate P95 gauge; kept P95/P99 timeseries for better insights
-- **Aligned Rows:** Consistent 4w + 4w + 4w + 12w layout for notification row
+- **Balanced 4-Column Layout:** Key metrics aligned horizontally for easy comparison
+- **Logical Flow:** Success metrics first → Details and trends below
+- **Clear Section Separation:** Headers visually divide saga and notification concerns
+- **Consistent Structure:** Both sections follow the same 4-2 pattern for visual harmony
 
 **Use Case:** Monitor complete order fulfillment process including payment, inventory, order status changes, and customer notifications
 
@@ -74,21 +87,32 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 **For:** CFO/Finance Team  
 **Focus:** Payment processing and financial metrics
 
-### Panels:
-- Payment success rate (gauge)
-- Payment throughput (payments/sec)
-- Failed payment rate (gauge)
-- Payment processing rate by service (timeseries)
-- Payment processing latency P95/P99 (timeseries)
-- Saga compensation rate (rollbacks)
-- Idempotency cache hit rate (gauge)
+### Panels (7 total):
+
+**Row 1 - Key Payment Metrics (3-column):**
+1. Payment Success Rate (%) - Gauge showing successful transaction rate - Target > 95%
+2. Failed Payment Rate (%) - Gauge showing failed transaction percentage - Alert if > 3%
+3. Payment Throughput (payments/sec) - Current payment processing volume
+
+**Row 2 - Payment Performance Details (2-column):**
+4. Payment Processing Rate by Service - Timeseries showing payment rate across services
+5. Order Processing Latency (P95/P99) - Includes payment processing time
+
+**Row 3 - Financial Reliability (2-column):**
+6. Saga Compensation Rate (Rollbacks) - Frequency of transaction rollbacks and failures
+7. Idempotency Cache Misses Rate - Lower is better; measures cache effectiveness for financial transactions
 
 **Key Metrics:**
 - ✅ Payment success: Target > 95%
 - ✅ Failed payments: Alert if > 3%
-- ✅ Cache effectiveness: Target > 90%
+- ✅ Cache effectiveness: Lower miss rate = better idempotency protection
 
-**Use Case:** Track payment health, failure rates, and financial transaction integrity
+**Layout Design:**
+- **3-Column Success Metrics:** Success and failure side-by-side for easy comparison
+- **2-Column Details:** Processing rate and latency for performance analysis
+- **2-Column Reliability:** Compensation and cache metrics for transaction integrity
+
+**Use Case:** Track payment health, failure rates, financial transaction integrity, and idempotency effectiveness
 
 ---
 
