@@ -437,6 +437,33 @@ services:
       retries: 3
       start_period: 30s
 
+  spark-metrics-exporter:
+    build:
+      context: .
+      dockerfile: analytics/Dockerfile.exporter
+    container_name: spark-metrics-exporter
+    ports:
+      - "9091:9090"
+    depends_on:
+      - postgres
+      - spark-master
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - TZ=America/Los_Angeles
+    networks:
+      - kafka-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 networks:
   kafka-network:
     driver: bridge

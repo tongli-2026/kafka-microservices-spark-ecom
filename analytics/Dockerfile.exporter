@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy metrics exporter
+COPY analytics/metrics_exporter.py .
+
+# Install dependencies
+RUN pip install --no-cache-dir prometheus-client psycopg2-binary
+
+EXPOSE 9090
+
+CMD ["python", "metrics_exporter.py"]

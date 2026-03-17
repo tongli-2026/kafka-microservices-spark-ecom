@@ -2,7 +2,7 @@
 
 ## All Available Dashboards
 
-Your monitoring system now includes **5 comprehensive dashboards**, each tailored for different teams and use cases.
+The monitoring system now includes **5 comprehensive dashboards**, each tailored for different teams and use cases.
 
 ---
 
