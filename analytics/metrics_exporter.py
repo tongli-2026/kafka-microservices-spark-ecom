@@ -8,8 +8,15 @@ Tables monitored:
 - revenue_metrics: 1-minute windowed revenue aggregations
 - fraud_alerts: Real-time fraud detection alerts
 - inventory_velocity: Hourly product sales velocity
-- cart_abandonment: 15-minute windowed cart abandonment
-- operational_metrics: Spark job execution logs
+- cart_abandonment: 30-minute windowed cart abandonment
+- operational_metrics: System health and throughput monitoring
+
+Metrics Exported (16 total):
+- Revenue: total_24h, order_count_24h, avg_order_value, revenue_per_minute
+- Fraud: alerts_total, by_type, alerts_rate_per_hour
+- Inventory: units_sold_24h, top_product_units, top_product_revenue
+- Cart: abandoned_24h, abandonment_rate, recovery_rate
+- System Health: health_pct, status_breakdown, critical_alert_count
 """
 
 import os
@@ -118,30 +125,23 @@ cart_recovery_rate = Gauge(
     ['service']
 )
 
-# Operational metrics
-spark_job_duration = Histogram(
-    'spark_job_duration_seconds',
-    'Spark job execution duration',
-    ['service', 'job_name'],
-    buckets=(10, 30, 60, 300, 600, 1800, 3600)
+# System health metrics
+system_health_pct = Gauge(
+    'spark_system_health_pct',
+    'Percentage of job monitoring windows in HEALTHY state (last 1h)',
+    ['service']
 )
 
-spark_job_success = Counter(
-    'spark_job_success_total',
-    'Successful Spark job executions',
-    ['service', 'job_name']
+system_status_breakdown = Gauge(
+    'spark_system_status_breakdown',
+    'Count of monitoring records by health status (last 1h)',
+    ['service', 'status']
 )
 
-spark_job_failure = Counter(
-    'spark_job_failure_total',
-    'Failed Spark job executions',
-    ['service', 'job_name']
-)
-
-spark_job_records_processed = Counter(
-    'spark_job_records_processed_total',
-    'Total records processed by Spark jobs',
-    ['service', 'job_name']
+critical_alert_count = Gauge(
+    'spark_critical_alert_count',
+    'Total CRITICAL status records in last 1 hour',
+    ['service']
 )
 
 # ============ DATABASE FUNCTIONS ============
@@ -332,47 +332,60 @@ def update_cart_abandonment_metrics(conn):
     except Exception as e:
         logger.error(f"Error updating cart abandonment metrics: {e}")
 
-def update_operational_metrics(conn):
-    """Query operational_metrics table and update Prometheus metrics."""
+def update_system_health_metrics(conn):
+    """Query operational_metrics table and update Prometheus system health metrics."""
     try:
         cursor = conn.cursor()
         
-        # Get operational metrics from the last 24 hours
-        # Note: Schema contains metric_name, metric_value, window_start, status
+        # Get total count and HEALTHY count in last 1 hour
         cursor.execute("""
-            SELECT metric_name, metric_value, status, window_start
+            SELECT 
+                COALESCE(COUNT(*), 0) as total_count,
+                COALESCE(SUM(CASE WHEN status = 'HEALTHY' THEN 1 ELSE 0 END), 0) as healthy_count
             FROM operational_metrics
-            WHERE window_start > NOW() - INTERVAL '24 hours'
-            ORDER BY window_start DESC
-            LIMIT 50
+            WHERE window_start > NOW() - INTERVAL '1 hour'
         """)
         
-        for metric_name, metric_value, status, window_start in cursor.fetchall():
-            # Extract job name from metric_name (format: "job_name_metric_type")
-            job_name = metric_name.split('_')[0] if metric_name else "unknown"
-            
-            if status and status.upper() == 'SUCCESS':
-                spark_job_success.labels(
-                    service="spark-analytics",
-                    job_name=job_name
-                ).inc()
-                
-                if metric_value:
-                    spark_job_duration.labels(
-                        service="spark-analytics",
-                        job_name=job_name
-                    ).observe(float(metric_value))
-            else:
-                spark_job_failure.labels(
-                    service="spark-analytics",
-                    job_name=job_name
-                ).inc()
+        total_count, healthy_count = cursor.fetchone()
+        
+        # Calculate health percentage
+        if total_count > 0:
+            health_pct = (healthy_count / total_count) * 100.0
+        else:
+            health_pct = 0.0
+        
+        system_health_pct.labels(service="spark-analytics").set(health_pct)
+        
+        # Get breakdown by status
+        cursor.execute("""
+            SELECT status, COUNT(*) as count
+            FROM operational_metrics
+            WHERE window_start > NOW() - INTERVAL '1 hour'
+            GROUP BY status
+        """)
+        
+        for status, count in cursor.fetchall():
+            system_status_breakdown.labels(
+                service="spark-analytics",
+                status=status or "UNKNOWN"
+            ).set(count)
+        
+        # Get CRITICAL alert count
+        cursor.execute("""
+            SELECT COALESCE(COUNT(*), 0) as critical_count
+            FROM operational_metrics
+            WHERE status = 'CRITICAL'
+            AND window_start > NOW() - INTERVAL '1 hour'
+        """)
+        
+        critical_count = cursor.fetchone()[0]
+        critical_alert_count.labels(service="spark-analytics").set(critical_count or 0)
         
         cursor.close()
-        logger.debug("Updated operational metrics")
+        logger.debug("Updated system health metrics")
         
     except Exception as e:
-        logger.error(f"Error updating operational metrics: {e}")
+        logger.error(f"Error updating system health metrics: {e}")
 
 def update_all_metrics():
     """Update all Prometheus metrics from PostgreSQL."""
@@ -386,7 +399,7 @@ def update_all_metrics():
         update_fraud_metrics(conn)
         update_inventory_metrics(conn)
         update_cart_abandonment_metrics(conn)
-        update_operational_metrics(conn)
+        update_system_health_metrics(conn)
         logger.info("Successfully updated all metrics")
     finally:
         conn.close()
