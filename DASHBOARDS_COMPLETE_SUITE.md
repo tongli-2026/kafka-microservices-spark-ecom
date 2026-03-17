@@ -2,7 +2,7 @@
 
 ## All Available Dashboards
 
-The monitoring system now includes **5 comprehensive dashboards**, each tailored for different teams and use cases.
+The monitoring system now includes **6 comprehensive dashboards**, each tailored for different teams and use cases.
 
 ---
 
@@ -183,6 +183,125 @@ The monitoring system now includes **5 comprehensive dashboards**, each tailored
 
 ---
 
+## 6. Spark Analytics Dashboard
+**URL:** `http://localhost:3000/d/spark-analytics-dashboard`  
+**For:** Analytics/Data Science Team  
+**Focus:** Real-time Spark job analytics, revenue trends, fraud detection, inventory velocity, and cart abandonment
+
+### Panels (20 total):
+
+**Section 1: Revenue Analytics (6 panels)**
+
+*Row 1 - Revenue KPIs (4-column balanced layout):*
+1. **24h Total Revenue** (Gauge - Blue) - Total revenue generated in last 24 hours (USD)
+2. **24h Order Count** (Gauge - Green) - Total orders processed in 24 hours
+3. **Average Order Value** (Gauge - Orange) - AOV indicator for pricing/upsell optimization
+4. **Revenue Per Minute** (Gauge - Purple) - Current revenue generation rate (live indicator)
+
+*Row 2 - Revenue Trends (2-column):*
+5. **Revenue Trend (24h)** (Timeseries) - Historical revenue changes with mean, max statistics
+6. **Order Count Trend (24h)** (Timeseries) - Order volume trends and patterns
+
+**Key Metrics:**
+- ✅ 24h Total Revenue: Monitor daily revenue performance
+- ✅ Order Count: Understand transaction volume
+- ✅ AOV: Track average transaction size
+- ✅ Revenue/Minute: Real-time revenue rate (conversions happening now)
+- ✅ Trends: Identify patterns and anomalies
+
+**Section 2: Fraud Detection (3 panels)**
+
+*Row 3 - Fraud Alerts (3-column):*
+7. **Total Fraud Alerts** (Gauge - Red) - Cumulative fraud alerts in 24h window
+8. **Fraud Alerts by Type** (Stacked Bar Chart) - Distribution of alert types (suspicious_behavior, high_amount, velocity_check, etc.)
+9. **Fraud Alert Rate** (Timeseries - Line) - Alerts per hour trend showing detection velocity
+
+**Key Metrics:**
+- ✅ Total Alerts: Monitor overall fraud activity level
+- ✅ Alert Types: Identify fraud patterns and types
+- ✅ Alert Rate: Track fraud detection velocity (alerts/hour)
+- ✅ Threshold: Alert if rate > 10 per hour (recommended)
+
+**Section 3: Inventory Analytics (4 panels)**
+
+*Row 4 - Inventory Metrics (1-column + 2-column):*
+10. **24h Units Sold** (Gauge - Green) - Total inventory units sold in 24h
+11. **Top 10 Products by Units Sold** (Bar Chart) - Best-selling products by quantity
+12. **Top 10 Products by Revenue** (Bar Chart) - Top products by revenue (may differ from quantity due to pricing)
+
+**Key Metrics:**
+- ✅ Units Sold: Monitor inventory velocity
+- ✅ Top by Units: Identify volume leaders
+- ✅ Top by Revenue: Identify revenue drivers
+- ✅ Variance: Products with high units but low revenue may have pricing issues
+
+**Section 4: Cart Abandonment (4 panels)**
+
+*Row 5 - Cart Metrics (3-column + 1-column):*
+13. **24h Abandoned Carts** (Gauge - Orange) - Number of carts detected as abandoned
+14. **Cart Abandonment Rate** (Gauge - Threshold) - Rate indicator (Red/Yellow thresholds)
+15. **Cart Recovery Rate** (Gauge - Threshold) - Recovery attempt success rate
+16. **Cart Abandonment Trend** (Timeseries) - Abandonment count trends over time
+
+**Key Metrics:**
+- ✅ Abandoned Count: Monitor customer drop-off volume
+- ✅ Abandonment Rate: Target < 50% of carts (schema currently tracks detected only)
+- ✅ Recovery Rate: Monitor recovery campaign effectiveness (currently 0.0 - schema enhancement needed)
+- ✅ Trend: Identify peak abandonment times for intervention
+
+**Known Limitation:** Cart recovery tracking requires schema enhancement (see "Known Limitations & TODOs" section)
+
+**Section 5: Spark Job Operations (3 panels)**
+
+*Row 6 - Job Health (2-column):*
+17. **Total Successful Jobs** (Gauge - Green) - Cumulative successful job executions
+18. **Total Failed Jobs** (Gauge - Red) - Cumulative failed job executions
+19. **Job Success vs Failure Rate** (Stacked Area Chart) - Comparison over time
+
+*Row 7 - Job Performance (1-column):*
+20. **Spark Job Execution Duration by Job** (Timeseries - Multi-line) - Duration trends by job type
+    - Revenue Streaming job duration
+    - Fraud Detection job duration
+    - Inventory Velocity job duration
+    - Cart Abandonment job duration
+    - Operational Metrics job duration
+
+**Key Metrics:**
+- ✅ Success Count: Monitor job reliability
+- ✅ Failure Count: Alert on job failures
+- ✅ Success Rate: Target > 99% (anomalies trigger alerts)
+- ✅ Duration: Identify performance degradation
+- ✅ By Job: Track individual job health
+
+**Recommended Alerts:**
+- Alert if failure_count > 5 in any 1-hour window
+- Alert if job_duration > 2x baseline for any job
+- Alert if success_rate < 95%
+
+**Use Case:** Analytics team monitors real-time Spark job performance, revenue metrics, fraud detection effectiveness, inventory velocity, customer abandonment patterns, and overall system health
+
+---
+
+## Key Differences: Spark Analytics vs Other Dashboards
+
+| Aspect | Spark Analytics | Other Dashboards |
+|--------|-----------------|------------------|
+| **Data Source** | PostgreSQL (via Spark exporter) | Direct service metrics (Prometheus) |
+| **Update Frequency** | 30 seconds (batch) | Per request (streaming) |
+| **Focus** | Business analytics, trends | Operational metrics, real-time |
+| **Team** | Analytics, Data Science | Product, Operations, Finance, DevOps |
+| **Time Window** | 24-hour windows, historical trends | Real-time, current performance |
+| **Metrics** | Revenue, fraud, inventory, carts | Requests, payments, orders, latency |
+
+The Spark Analytics Dashboard complements rather than duplicates other dashboards:
+- **Not in Microservices Dashboard:** Spark jobs run asynchronously, not on request path
+- **Not in Financial Operations:** Focus on analytics trends, not transaction processing
+- **Not in Order Fulfillment:** Tracks overall analytics system health, not order workflow
+- **Not in Customer Experience:** Provides backend analytics vs user-facing metrics
+- **Not in Infrastructure Health:** Focuses on analytics layer, not infrastructure
+
+---
+
 ## Dashboard Access Quick Links
 
 | Dashboard | URL | Team |
@@ -192,6 +311,7 @@ The monitoring system now includes **5 comprehensive dashboards**, each tailored
 | **Financial Operations** | http://localhost:3000/d/financial-operations-dashboard | Finance |
 | **Customer Experience** | http://localhost:3000/d/customer-experience-dashboard | Product/UX |
 | **Infrastructure Health** | http://localhost:3000/d/infrastructure-health-dashboard | DevOps/SRE |
+| **Spark Analytics** | http://localhost:3000/d/spark-analytics-dashboard | Analytics/Data Science |
 
 ---
 
@@ -212,9 +332,17 @@ User Perspective (Top-Down)
 ├─ Infrastructure Health Dashboard
 │  └─ "Are all services up? Is performance acceptable?"
 │
-└─ Microservices Dashboard
-   └─ "What are the raw metrics for each service?"
+├─ Microservices Dashboard
+│  └─ "What are the raw metrics for each service?"
+│
+└─ Spark Analytics Dashboard
+   └─ "What are the business trends? How is our analytics performing?"
 ```
+
+The Spark Analytics Dashboard provides the **analytical layer** that synthesizes operational data:
+- **Operational dashboards (1-5)** show what's happening NOW
+- **Spark Analytics dashboard** shows what HAPPENED (historical trends, patterns)
+- **Together:** Complete picture of system performance and business metrics
 
 ---
 
@@ -249,6 +377,13 @@ User Perspective (Top-Down)
 - Error rate: < 0.5%
 - P99 latency: < 500ms per service
 
+### Spark Analytics
+- Fraud alert rate: < 10 per hour (normal operations)
+- Cart abandonment rate: < 50% (of total carts)
+- Job success rate: > 99% (< 5 failures per day)
+- Job execution duration: < 5 seconds per job (baseline)
+- Revenue per minute: > $X (business target, varies)
+
 ---
 
 ## Accessing Dashboards
@@ -266,6 +401,7 @@ Visit any dashboard directly:
 - Customer Experience: http://localhost:3000/d/customer-experience-dashboard
 - Infrastructure: http://localhost:3000/d/infrastructure-health-dashboard
 - Microservices: http://localhost:3000/d/microservices-dashboard
+- Spark Analytics: http://localhost:3000/d/spark-analytics-dashboard
 
 ### Method 3: Import via API
 Each dashboard is stored as JSON in `monitoring/dashboards/`:
@@ -323,6 +459,7 @@ Each dashboard has a unique identifier for API access:
 | Financial Operations | `financial-operations-dashboard` |
 | Customer Experience | `customer-experience-dashboard` |
 | Infrastructure Health | `infrastructure-health-dashboard` |
+| Spark Analytics | `spark-analytics-dashboard` |
 
 ---
 
@@ -358,6 +495,7 @@ All dashboards stored in: `monitoring/dashboards/`
 - `financial-operations-dashboard.json`
 - `customer-experience-dashboard.json`
 - `infrastructure-health-dashboard.json`
+- `spark-analytics-dashboard.json`
 
 ---
 
@@ -379,6 +517,7 @@ You now have a **complete monitoring dashboard suite** covering:
 - 💰 **Financial Operations** - Finance team compliance
 - 👥 **Customer Experience** - Product team insights
 - 🏗️ **Infrastructure Health** - DevOps team operations
+- 📈 **Spark Analytics** - Analytics & data science insights
 
 Each dashboard is independent and can be accessed via web UI, direct URL, or API. All dashboards refresh every 30 seconds and cover the last 6 hours by default (configurable).
 
@@ -438,8 +577,56 @@ Each dashboard is independent and can be accessed via web UI, direct URL, or API
 
 ## Complete Metrics Utilization ✅
 
-All 15 business metrics available in Prometheus are now actively utilized across the 5 dashboards:
+### Microservices Metrics (15 total)
+All 15 business metrics available in Prometheus are now actively utilized across the first 5 dashboards:
 - **100% metric coverage** - No unused metrics
 - **Real-time data visualization** - All metrics have live data
 - **Multiple dashboard representation** - Cross-referenced metrics show different team perspectives
 - **Comprehensive monitoring** - All service layers covered (carts, payments, orders, inventory, notifications)
+
+### Spark Analytics Metrics (21 total)
+All 21 Spark metrics exported by the metrics exporter are now actively utilized in the Spark Analytics Dashboard:
+
+#### 📊 Revenue Metrics (4 total)
+- `spark_revenue_total_24h` - 24h total revenue (USD)
+- `spark_order_count_24h` - 24h order count
+- `spark_avg_order_value` - Average order value
+- `spark_revenue_per_minute` - Current revenue rate
+
+#### 🚨 Fraud Detection Metrics (3 total)
+- `spark_fraud_alerts_total` - Total fraud alerts (24h)
+- `spark_fraud_by_type_total` - Fraud alerts grouped by type
+- `spark_fraud_alerts_rate_per_hour` - Fraud alert rate (alerts/hour)
+
+#### 📦 Inventory Metrics (3 total)
+- `spark_inventory_velocity_units_sold_24h` - 24h units sold
+- `spark_top_product_units_sold` - Top 10 products by units
+- `spark_top_product_revenue` - Top 10 products by revenue
+
+#### 🛒 Cart Abandonment Metrics (3 total)
+- `spark_cart_abandoned_24h` - 24h abandoned carts
+- `spark_cart_abandonment_rate` - Abandonment rate (%)
+- `spark_cart_recovery_rate` - Recovery rate (%)
+
+#### ⚙️ Spark Job Operations Metrics (8 total)
+- `spark_job_success_total` - Total successful jobs
+- `spark_job_failure_total` - Total failed jobs
+- `spark_job_duration{job_name='revenue_streaming'}` - Revenue job duration
+- `spark_job_duration{job_name='fraud_detection'}` - Fraud detection job duration
+- `spark_job_duration{job_name='inventory_velocity'}` - Inventory velocity job duration
+- `spark_job_duration{job_name='cart_abandonment'}` - Cart abandonment job duration
+- `spark_job_duration{job_name='operational_metrics'}` - Operational metrics job duration
+- `spark_job_records_processed_total` - Total records processed
+
+---
+
+## Overall Metrics Coverage Summary
+
+| Source | Metric Count | Dashboard | Coverage |
+|--------|-------------|-----------|----------|
+| **Microservices (Prometheus)** | 15 | 5 Dashboards | 100% ✅ |
+| **Spark Analytics (PostgreSQL)** | 21 | 1 Dashboard | 100% ✅ |
+| **TOTAL** | **36** | **6 Dashboards** | **100% ✅** |
+
+**Complete monitoring coverage:** All available metrics are now visualized in dedicated dashboards!
+
