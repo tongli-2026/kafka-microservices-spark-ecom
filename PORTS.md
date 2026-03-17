@@ -3,7 +3,14 @@
 ## All Ports Used in This Project
 
 ### Kafka Brokers
-| Service | Host Port | Container Port | Purpose |
+| S## Port Conflict Resolution
+
+✅ **Fixed Conflict**: Spark Master UI moved from 8080 → 9080 to avoid conflict with Kafka UI
+✅ **Fixed Conflict**: Spark Metrics Exporter moved from 9091 → 9096 to avoid conflict with Kafka Broker 3
+
+## Total Ports Used: 24
+
+All ports are checked and verified to be unique!| Host Port | Container Port | Purpose |
 |---------|-----------|----------------|---------|
 | kafka-broker-1 | 9092 | 9092 | Kafka internal |
 | kafka-broker-1 | 9094 | 9094 | Kafka external |
@@ -25,6 +32,13 @@
 | spark-worker-1 | 8081 | 8081 | Worker 1 Web UI |
 | spark-worker-1 | 4040 | 4040 | Spark Driver Web UI |
 | spark-worker-2 | 8082 | 8081 | Worker 2 Web UI |
+
+### Monitoring & Metrics
+| Service | Host Port | Container Port | Purpose |
+|---------|-----------|----------------|---------|
+| prometheus | 9090 | 9090 | Prometheus metrics & queries |
+| grafana | 3000 | 3000 | Grafana dashboards |
+| spark-metrics-exporter | 9096 | 9090 | Spark analytics metrics exporter |
 
 ### Database & Cache
 | Service | Host Port | Container Port | Purpose |
@@ -48,6 +62,11 @@
 | notification-service | 8005 | 8005 | Notification REST API |
 
 ## Quick Access URLs
+
+### Monitoring UIs
+- **Prometheus**: http://localhost:9090 (metrics queries)
+- **Grafana**: http://localhost:3000 (dashboards - admin/admin)
+- **Spark Metrics Exporter**: http://localhost:9096/metrics (raw metrics)
 
 ### Management UIs
 - **Kafka UI**: http://localhost:8080

@@ -443,7 +443,7 @@ services:
       dockerfile: analytics/Dockerfile.exporter
     container_name: spark-metrics-exporter
     ports:
-      - "9091:9090"
+      - "9096:9090"
     depends_on:
       - postgres
       - spark-master
