@@ -21,7 +21,7 @@ Your monitoring system now includes **5 comprehensive dashboards**, each tailore
 5. Notification Service (UP/DOWN)
 
 **Row 2 - Business Metrics:**
-6. Inventory Stock Levels by Product - Full-width timeseries showing real-time stock levels for 20+ products
+6. Inventory Stock Levels by Product - Full-width timeseries showing real-time stock levels for all products
 
 **Row 3 - Request Performance Metrics:**
 7. Request Rate by Service & Business Operations
@@ -353,11 +353,11 @@ Each dashboard has a unique identifier for API access:
 
 ## Files Location
 All dashboards stored in: `monitoring/dashboards/`
-- `microservices-dashboard.json` (existing)
-- `order-fulfillment-dashboard.json` (new)
-- `financial-operations-dashboard.json` (new)
-- `customer-experience-dashboard.json` (new)
-- `infrastructure-health-dashboard.json` (new)
+- `microservices-dashboard.json`
+- `order-fulfillment-dashboard.json`
+- `financial-operations-dashboard.json`
+- `customer-experience-dashboard.json`
+- `infrastructure-health-dashboard.json`
 
 ---
 
@@ -395,7 +395,7 @@ Each dashboard is independent and can be accessed via web UI, direct URL, or API
 
 ### Metrics by Service
 
-#### �� Cart Service
+#### 🛒 Cart Service
 | Metric | Dashboards | Status |
 |--------|-----------|--------|
 | `cart_operations_total` | Customer Experience, Microservices | ✅ Used |
