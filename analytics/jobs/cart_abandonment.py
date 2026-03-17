@@ -48,12 +48,17 @@ ALGORITHM:
     └─────────────────────────────────────┘
 
 WATERMARKING:
-    - Item Added Watermark: 30 seconds (optimized for faster detection)
-      Allows late item additions up to 30 seconds after event time
-    - Checkout Watermark: 30 seconds (optimized for faster detection)
-      Allows late checkout events up to 30 seconds after event time
-    - Join Window: 1 minute after item add
-      Checkout must occur within 1 minute to be considered (not abandoned)
+    - Item Added Watermark: 30 minutes (matches join window)
+      Allows late item additions up to 30 minutes after event time
+    - Checkout Watermark: 30 minutes (matches join window)
+      Allows late checkout events up to 30 minutes after event time
+    - Join Window: 30 minutes after item add
+      Checkout must occur within 30 minutes to be considered (not abandoned)
+    
+    Why watermark matches join window:
+    - Item added at T=0, watermark expires at T=30min
+    - Checkout can arrive anytime up to T=30min
+    - Ensures checkout events can always be matched within the join window
 
 PERFORMANCE:
     - Kafka Max Rate: 10,000 events/partition/second
@@ -111,13 +116,13 @@ def cart_abandonment():
     Cart Abandonment Detection Job
     
     Consumes two Kafka streams and performs a stream-stream left join to identify
-    users who added items to cart but never initiated checkout within 1 minute.
+    users who added items to cart but never initiated checkout within 30 minutes.
     
     PROCESS FLOW:
     1. Read cart.item_added stream (left: all item additions)
     2. Read cart.checkout_initiated stream (right: completed checkouts)
-    3. Apply watermarks to both streams (30 seconds for late data)
-    4. Join on user_id with time constraint (1-minute window)
+    3. Apply watermarks to both streams (30 minutes for late data)
+    4. Join on user_id with time constraint (30-minute window)
     5. Filter for NULL checkout (no matching checkout found = abandoned)
     6. Write abandoned carts to PostgreSQL
     
@@ -190,9 +195,9 @@ def cart_abandonment():
     # Apply watermarks to handle late-arriving data
     # Watermark allows events to arrive up to 30 minutes late before being dropped
     # This is important in case events arrive out of order from Kafka
-    # NOTE: For testing/development, using 30 seconds instead of 1 minute for faster results
-    items_with_wm = parsed_items.withWatermark("item_added_time", "30 seconds")
-    checkout_with_wm = parsed_checkout.withWatermark("checkout_time", "30 seconds")
+    # NOTE: Watermark set to 30 minutes to match join window (allows late checkout events)
+    items_with_wm = parsed_items.withWatermark("item_added_time", "30 minutes")
+    checkout_with_wm = parsed_checkout.withWatermark("checkout_time", "30 minutes")
 
     # Stream-stream left join to identify abandoned carts
     # LEFT JOIN: Keep all item additions, even if no matching checkout
@@ -205,7 +210,7 @@ def cart_abandonment():
         checkout_with_wm,
         (col("user_id") == col("checkout_user_id")) &
         (col("checkout_time") >= col("item_added_time")) &
-        (col("checkout_time") <= expr("item_added_time + INTERVAL 1 MINUTES")),
+        (col("checkout_time") <= expr("item_added_time + INTERVAL 30 MINUTES")),
         "leftOuter"
     ).filter(col("checkout_user_id").isNull()) \
     .select(

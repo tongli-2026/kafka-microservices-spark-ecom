@@ -482,7 +482,7 @@ Different jobs use different windows optimized for their analysis:
 | revenue_streaming | Tumbling | 1 minute | High-frequency revenue tracking |
 | fraud_detection | Tumbling + Sliding | 5 min window, 1 min slide | Overlapping windows for pattern detection across boundaries |
 | inventory_velocity | Tumbling | 1 hour | Inventory trends over longer period |
-| cart_abandonment | Stream-Stream Join | 1 minute join window | Left join: keep items without matching checkout (abandoned) |
+| cart_abandonment | Stream-Stream Join | 30 minute join window | Left join: keep items without matching checkout within 30 minutes (abandoned) |
 | operational_metrics | Tumbling | 1 minute | Event-based throughput monitoring per topic |
 
 ### Checkpoints & State Management
