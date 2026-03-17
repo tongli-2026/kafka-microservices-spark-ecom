@@ -480,10 +480,10 @@ Different jobs use different windows optimized for their analysis:
 | Job | Window Type | Duration | Reason |
 |-----|------------|----------|--------|
 | revenue_streaming | Tumbling | 1 minute | High-frequency revenue tracking |
-| fraud_detection | Tumbling | 5 minutes | Pattern detection requires time window |
+| fraud_detection | Tumbling + Sliding | 5 min window, 1 min slide | Overlapping windows for pattern detection across boundaries |
 | inventory_velocity | Tumbling | 1 hour | Inventory trends over longer period |
-| cart_abandonment | Sliding | 15 minutes | Capture abandonment patterns |
-| operational_metrics | Trigger | Per-job | Event-based (job completion) |
+| cart_abandonment | Stream-Stream Join | 1 minute join window | Left join: keep items without matching checkout (abandoned) |
+| operational_metrics | Tumbling | 1 minute | Event-based throughput monitoring per topic |
 
 ### Checkpoints & State Management
 
