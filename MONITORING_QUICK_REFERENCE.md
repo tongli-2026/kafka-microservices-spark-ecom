@@ -1,4 +1,49 @@
-# Monitoring Quick Reference Card
+# Monitoring Complete Guide
+
+## ⚡ Quick Start: Access Monitoring Tools
+
+### Grafana Dashboard
+- **URL:** http://localhost:3000
+- **Username:** admin
+- **Password:** admin
+
+### Prometheus Metrics UI
+- **URL:** http://localhost:9090
+
+### View Raw Service Metrics
+```bash
+# Payment Service
+curl http://localhost:8003/metrics | head -20
+
+# Order Service
+curl http://localhost:8002/metrics | head -20
+
+# Inventory Service
+curl http://localhost:8004/metrics | head -20
+
+# Notification Service
+curl http://localhost:8005/metrics | head -20
+
+# Cart Service
+curl http://localhost:8001/metrics | head -20
+```
+
+### Basic Prometheus Queries
+```promql
+# Check if all targets are up
+up
+
+# Count total targets
+count(up)
+
+# See all metric names
+{__name__=""}
+
+# Check Python garbage collection
+python_gc_objects_collected_total
+```
+
+---
 
 ## 🎯 What Was Implemented
 
@@ -302,6 +347,14 @@ When creating alert rules, watch for:
 
 ## 📞 Troubleshooting
 
+### Prometheus not collecting metrics?
+```bash
+# Check Prometheus targets
+curl http://localhost:9090/api/v1/targets | jq .
+
+# Should see all 6 targets as "up": true
+```
+
 ### No metrics showing up?
 ```bash
 1. Check service is running:
@@ -315,6 +368,22 @@ When creating alert rules, watch for:
    
 4. Check Grafana datasource:
    http://localhost:3000 → Configuration → Data Sources
+```
+
+### Metrics endpoint returns 404?
+```bash
+# Rebuild and restart services
+docker-compose build --no-cache payment-service
+docker-compose up -d payment-service
+```
+
+### Grafana can't connect to Prometheus?
+```bash
+# Check Grafana logs
+docker logs grafana
+
+# Verify Prometheus is running
+curl http://prometheus:9090/-/healthy
 ```
 
 ### Dashboard looks empty?
@@ -340,6 +409,60 @@ When creating alert rules, watch for:
 3. Remove unnecessary labels
    Keep labels < 5 per metric
 ```
+
+### Want to reset everything?
+```bash
+# Stop monitoring stack
+docker-compose down prometheus grafana
+
+# Remove data volumes
+docker volume rm kafka-microservices-spark-ecom_prometheus_data
+docker volume rm kafka-microservices-spark-ecom_grafana_data
+
+# Restart fresh
+docker-compose up -d prometheus grafana
+```
+
+---
+
+## 💾 Storage Information
+
+### Prometheus Data
+- **Location:** `prometheus_data` volume
+- **Retention:** 15 days
+- **Size:** ~10MB/day (varies with load)
+- **Storage Path:** `/prometheus` (inside container)
+
+### Grafana Data
+- **Location:** `grafana_data` volume
+- **Includes:** Dashboards, datasources, user settings
+- **Size:** ~50MB (with dashboards)
+- **Storage Path:** `/var/lib/grafana` (inside container)
+
+---
+
+## ⚙️ Performance Tips
+
+### Reduce CPU Impact
+If Prometheus is using too much CPU, you can:
+```yaml
+# In monitoring/prometheus.yml, increase scrape interval:
+scrape_interval: 30s  # Was 15s
+```
+
+### Reduce Storage Usage
+```yaml
+# In docker-compose.yml, change retention:
+--storage.tsdb.retention.time=7d  # Was 15d
+```
+
+### Reduce Grafana Memory
+In docker-compose.yml:
+```yaml
+GF_SERVER_MAX_OPEN_CONNECTIONS: 100  # Limit database connections
+```
+
+---
 
 ---
 
