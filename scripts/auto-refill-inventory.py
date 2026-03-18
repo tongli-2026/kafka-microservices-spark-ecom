@@ -45,6 +45,112 @@ USAGE:
     # Verbose logging (debug mode)
     ./scripts/auto-refill-inventory.py --verbose
 
+RUNNING IN BACKGROUND vs FOREGROUND:
+
+    Option 1: Run in Foreground (Recommended for Testing)
+    ──────────────────────────────────────────────────────
+    ./scripts/auto-refill-inventory.py
+    
+    - Shows all refill activity in real-time
+    - Can see logs and statistics
+    - Press Ctrl+C to stop (graceful shutdown)
+    - Statistics printed on exit
+    - Terminal is blocked (need another terminal for load test)
+    
+    Option 2: Run in Background with & (Recommended for Load Tests)
+    ──────────────────────────────────────────────────────────────
+    ./scripts/auto-refill-inventory.py &
+    
+    - Runs in background, terminal is free
+    - Logs still appear in same terminal (interleaved with other output)
+    - Can run other commands in same terminal
+    - To stop: ./scripts/kill-auto-refill.sh (graceful)
+    - Or: pkill -f auto-refill-inventory.py (force)
+    
+    Option 3: Run in Background with nohup (Ignore Hangups)
+    ──────────────────────────────────────────────────────
+    nohup ./scripts/auto-refill-inventory.py > auto-refill.log &
+    
+    - Runs in background even if terminal closes
+    - Output redirected to file: auto-refill.log
+    - Can check logs: tail -f auto-refill.log
+    - To stop: ./scripts/kill-auto-refill.sh
+    
+    Option 4: Let It Run Permanently (Advanced)
+    ────────────────────────────────────────────
+    nohup ./scripts/auto-refill-inventory.py &> auto-refill.log &
+    disown  # Detach from shell
+    
+    - Survives terminal close and session end
+    - Useful for long-duration tests
+    - Monitor with: tail -f auto-refill.log
+
+STOPPING THE SERVICE:
+
+    From Foreground:
+    ────────────────
+    Press Ctrl+C
+    - Sends SIGINT signal
+    - Graceful shutdown: closes DB connection, prints statistics
+    - Database transaction committed
+    
+    From Background:
+    ────────────────
+    Option 1 (Recommended): Use helper script
+    ./scripts/kill-auto-refill.sh
+    - Graceful shutdown first (SIGTERM)
+    - Force kill if needed (SIGKILL)
+    - Shows status and statistics
+    
+    Option 2: Direct kill
+    kill %1                        # Kill background job 1
+    pkill -f auto-refill-inventory # Kill by process name
+    pkill -TERM -f auto-refill     # Graceful termination
+    pkill -9 -f auto-refill        # Force kill
+    
+    Option 3: Let it keep running
+    - No need to stop, just start load test
+    - It runs independently in background
+    - Stop anytime with one of above methods
+
+MULTI-TERMINAL WORKFLOW (Recommended):
+
+    Terminal 1: Start services
+    ──────────────────────────
+    docker-compose up -d
+    
+    Terminal 2: Start auto-refill in foreground
+    ────────────────────────────────────────────
+    ./scripts/auto-refill-inventory.py
+    
+    Terminal 3: Start Spark jobs in background
+    ───────────────────────────────────────────
+    ./scripts/spark/start-spark-jobs.sh &
+    
+    Terminal 4: Run load test
+    ──────────────────────────
+    ./scripts/simulate-users.py --mode continuous --users 20 --duration 300
+    
+    When done:
+    - Terminal 2: Press Ctrl+C to stop auto-refill
+    - Terminal 3: Type 'kill %1' to stop Spark jobs
+    - Terminal 1: Type 'docker-compose down' to stop services
+
+SINGLE-TERMINAL WORKFLOW (Compact):
+
+    docker-compose up -d
+    sleep 5
+    ./scripts/spark/start-spark-jobs.sh &
+    sleep 2
+    ./scripts/auto-refill-inventory.py &
+    sleep 2
+    ./scripts/simulate-users.py --mode continuous --users 20 --duration 300
+    
+    # When load test completes:
+    ./scripts/kill-auto-refill.sh
+    pkill -f "spark.*py"
+    docker-compose down
+
 COMMAND-LINE OPTIONS:
     --threshold N (default: 20)
         Trigger refill when stock drops below N units
