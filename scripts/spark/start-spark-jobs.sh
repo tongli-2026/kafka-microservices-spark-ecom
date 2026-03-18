@@ -13,13 +13,19 @@ fi
 #   Start all 5 Spark streaming jobs concurrently in the background
 #
 # USAGE:
-#   ./scripts/spark/start-spark-jobs.sh
+#   ./scripts/spark/start-spark-jobs.sh              # Just start jobs
+#   ./scripts/spark/start-spark-jobs.sh --with-monitor  # Start jobs + auto-monitoring
+#
+# OPTIONS:
+#   --with-monitor    Start monitor-spark-jobs.sh in background to auto-restart jobs
+#   --no-clear        Skip checkpoint clearing (keep job state)
 #
 # WHAT IT DOES:
-#   1. Clears all checkpoints
+#   1. Clears all checkpoints (unless --no-clear)
 #   2. Submits all 5 jobs in background
 #   3. Displays job submission status
-#   4. Shows monitoring instructions
+#   4. Optionally starts monitoring daemon (if --with-monitor)
+#   5. Shows monitoring instructions
 #
 
 # Color codes
@@ -34,12 +40,38 @@ echo -e "${BLUE}║${NC}  ${GREEN}Starting All Spark Streaming Jobs${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Clear all checkpoints
-echo -e "${YELLOW}Clearing checkpoints...${NC}"
-docker exec spark-worker-1 rm -rf /opt/spark-data/checkpoints 2>/dev/null
-docker exec spark-master rm -rf /opt/spark-data/checkpoints 2>/dev/null
-sleep 2
-echo -e "${GREEN}✅ Checkpoints cleared${NC}"
+# Parse command line arguments
+WITH_MONITOR=false
+CLEAR_CHECKPOINTS=true
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-monitor)
+            WITH_MONITOR=true
+            shift
+            ;;
+        --no-clear)
+            CLEAR_CHECKPOINTS=false
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./scripts/spark/start-spark-jobs.sh [--with-monitor] [--no-clear]"
+            exit 1
+            ;;
+    esac
+done
+
+# Clear checkpoints (unless disabled)
+if [ "$CLEAR_CHECKPOINTS" = true ]; then
+    echo -e "${YELLOW}Clearing checkpoints...${NC}"
+    docker exec spark-worker-1 rm -rf /opt/spark-data/checkpoints 2>/dev/null
+    docker exec spark-master rm -rf /opt/spark-data/checkpoints 2>/dev/null
+    sleep 2
+    echo -e "${GREEN}✅ Checkpoints cleared${NC}"
+else
+    echo -e "${YELLOW}Skipping checkpoint clearing (--no-clear)${NC}"
+fi
 echo ""
 
 # Define jobs to start
@@ -94,3 +126,17 @@ echo ""
 echo -e "${YELLOW}Query results:${NC}"
 echo "  docker-compose exec postgres psql -U postgres -d kafka_ecom"
 echo ""
+
+# Optionally start monitoring
+if [ "$WITH_MONITOR" = true ]; then
+    echo -e "${YELLOW}Starting monitoring daemon...${NC}"
+    ./scripts/spark/monitor-spark-jobs.sh > /tmp/spark-monitor.log 2>&1 &
+    MONITOR_PID=$!
+    echo -e "${GREEN}✅ Monitoring started (PID: $MONITOR_PID)${NC}"
+    echo "   Watch monitoring: tail -f /tmp/spark-monitor.log"
+    echo ""
+else
+    echo -e "${BLUE}ℹ️  Tip: To auto-restart jobs if they fail, use:${NC}"
+    echo "   ./scripts/spark/start-spark-jobs.sh --with-monitor"
+    echo ""
+fi
