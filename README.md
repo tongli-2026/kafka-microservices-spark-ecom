@@ -1473,3 +1473,144 @@ Kafka Topics → Spark Streaming Jobs → PostgreSQL Analytics Tables
 ```
 
 Each job continuously reads from Kafka, aggregates data, and writes results to PostgreSQL.
+
+## Quick Access URLs & Ports
+
+### All Ports Used in This Project (21 total)
+
+#### Kafka Cluster
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| kafka-broker-1 | 9092, 9094 | Kafka brokers |
+| kafka-broker-2 | 9093, 9095 | Kafka brokers |
+| kafka-broker-3 | 9091, 9096 | Kafka brokers |
+| kafka-ui | 8080 | Web UI for Kafka management |
+
+#### Spark Cluster
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| spark-master | 9080, 7077 | Spark Master Web UI & communication |
+| spark-worker-1 | 8081, 4040 | Worker UI & Driver UI |
+| spark-worker-2 | 8082 | Worker 2 UI |
+
+#### Monitoring & Metrics
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| prometheus | 9090 | Prometheus metrics & queries |
+| grafana | 3000 | Grafana dashboards |
+| spark-metrics-exporter | 9097 | Spark analytics metrics exporter |
+
+#### Database & Cache
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| postgres | 5432 | PostgreSQL database |
+| redis | 6379 | Redis cache |
+
+#### Microservices
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| cart-service | 8001 | Cart REST API |
+| order-service | 8002 | Order REST API |
+| payment-service | 8003 | Payment REST API |
+| inventory-service | 8004 | Inventory REST API |
+| notification-service | 8005 | Notification REST API |
+
+#### Email
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| mailpit | 1025, 8025 | SMTP & Web UI |
+
+### Quick Access URLs
+
+**Monitoring & Management:**
+- Prometheus: http://localhost:9090 (metrics)
+- Grafana: http://localhost:3000 (dashboards - admin/admin)
+- Kafka UI: http://localhost:8080
+- Spark Master UI: http://localhost:9080 (⚡ moved from 8080)
+- Spark Worker 1 UI: http://localhost:8081
+- Spark Worker 2 UI: http://localhost:8082
+- Spark Driver UI: http://localhost:4040 (when running)
+- Mailpit UI: http://localhost:8025
+
+**Microservices APIs (Swagger docs):**
+- Cart: http://localhost:8001/docs
+- Order: http://localhost:8002/docs
+- Payment: http://localhost:8003/docs
+- Inventory: http://localhost:8004/docs
+- Notification: http://localhost:8005/docs
+
+**Database Connections:**
+- PostgreSQL: localhost:5432 (user: postgres, pwd: postgres, db: kafka_ecom)
+- Redis: localhost:6379
+
+## Docker Images & Architecture Compatibility
+
+### ARM64 (Apple Silicon) Native Support
+
+All services run natively on ARM64 architecture without emulation:
+
+| Service | Image | Architecture |
+|---------|-------|--------------|
+| Kafka Brokers | `apache/kafka:latest` | ARM64 native ✅ |
+| Spark | `apache/spark:3.5.1` | ARM64 native ✅ |
+| PostgreSQL | `postgres:15` | ARM64 native ✅ |
+| Redis | `redis:7-alpine` | ARM64 native ✅ |
+| Kafka UI | `provectuslabs/kafka-ui:latest` | ARM64 native ✅ |
+| Mailpit | `axllent/mailpit:latest` | ARM64 native ✅ |
+| Microservices | Python 3.11-slim | ARM64 native ✅ |
+
+**Total: 15/15 containers running ARM64-native** 🎉
+
+### Key Note: MailHog → Mailpit Migration
+- **Mailpit** (`axllent/mailpit:latest`) replaces MailHog for ARM64-native performance
+- Same SMTP (1025) and Web UI (8025) ports
+- Better performance on Apple Silicon with no x86 emulation
+
+## Auto-Refill Inventory Utility
+
+For sustained load testing without running out of stock:
+
+### Quick Start
+```bash
+# Install dependency (one-time)
+pip install psycopg2-binary
+
+# Run auto-refill service
+./scripts/auto-refill-inventory.py
+
+# In another terminal, run load test
+./scripts/simulate-users.py --mode continuous --duration 600 --users 20
+```
+
+### Configuration Options
+```bash
+./scripts/auto-refill-inventory.py [options]
+
+--threshold N           # Refill when stock < N (default: 20)
+--refill-quantity N     # Add N units per refill (default: 50)
+--interval N            # Check every N seconds (default: 10)
+--verbose              # Debug logging
+```
+
+### Example Use Cases
+```bash
+# Light load (default)
+./scripts/auto-refill-inventory.py
+
+# Heavy stress test
+./scripts/auto-refill-inventory.py --threshold 10 --refill-quantity 100
+
+# Realistic inventory
+./scripts/auto-refill-inventory.py --threshold 30 --refill-quantity 30 --interval 15
+
+# Debug mode
+./scripts/auto-refill-inventory.py --verbose
+```
+
+### How It Works
+- Connects to PostgreSQL and monitors product stock every N seconds
+- When stock drops below threshold, automatically adds refill quantity units
+- Runs in background alongside your load tests
+- Press Ctrl+C to stop and see statistics (total refills, units added, timing)
+
+For complete details, see the script's built-in docstring: `head -250 ./scripts/auto-refill-inventory.py`
