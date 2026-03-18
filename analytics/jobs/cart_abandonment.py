@@ -236,7 +236,7 @@ def cart_abandonment():
             logger.info(f"Writing {batch_df.count()} abandoned carts (batch_id={batch_id})")
             batch_df.write \
                 .format("jdbc") \
-                .mode("append") \
+                .mode("overwrite") \
                 .option("url", f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}") \
                 .option("dbtable", "cart_abandonment") \
                 .option("user", POSTGRES_USER) \

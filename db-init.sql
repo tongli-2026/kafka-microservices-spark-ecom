@@ -14,21 +14,16 @@
 -- ============================================================================
 -- Tracks shopping carts where users added items but didn't complete checkout
 CREATE TABLE IF NOT EXISTS cart_abandonment (
-    id SERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     product_id VARCHAR(255) NOT NULL,
     item_added_time TIMESTAMP NOT NULL,
-    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Index for faster queries by user_id
 CREATE INDEX IF NOT EXISTS idx_cart_abandonment_user_id ON cart_abandonment(user_id);
 -- Index for faster queries by detected_at
 CREATE INDEX IF NOT EXISTS idx_cart_abandonment_detected_at ON cart_abandonment(detected_at);
-
-GRANT ALL PRIVILEGES ON cart_abandonment TO postgres;
-GRANT ALL PRIVILEGES ON cart_abandonment_id_seq TO postgres;
 
 -- ============================================================================
 -- 2. REVENUE METRICS TABLE
@@ -89,8 +84,7 @@ CREATE TABLE IF NOT EXISTS inventory_velocity (
     product_id VARCHAR(255) NOT NULL,
     units_sold INTEGER,
     revenue DECIMAL(12, 2),
-    velocity_rank INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    velocity_rank INTEGER
 );
 
 -- Index for product queries

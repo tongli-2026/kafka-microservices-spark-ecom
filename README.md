@@ -64,25 +64,30 @@ kafka-microservices-spark-ecom/
 │
 ├── 📚 Documentation
 │   ├── README.md                     # Main documentation (this file)
-│   ├── API.md                        # API endpoint documentation
-│   ├── PORTS.md                      # Port reference guide
-│   ├── DOCKER_IMAGES.md              # Docker image information
-│   └── TEST_*.md                     # Testing workflow guides
+│   ├── API.md                        # API endpoint documentation (941 lines)
+│   ├── SPARK_ANALYTICS.md            # Spark streaming jobs & analytics (814 lines)
+│   ├── MONITORING_QUICK_REFERENCE.md # Monitoring guide (36+ metrics) (717 lines)
+│   ├── IDEMPOTENCY_IMPLEMENTATION.md # Saga + outbox pattern details (976 lines)
+│   ├── DASHBOARDS_COMPLETE_SUITE.md  # Grafana dashboards reference (632 lines)
+│   ├── TROUBLESHOOTING.md            # Problem resolution guide (393 lines)
+│   └── conftest.py                   # Pytest configuration
 │
 ├── 🔧 Scripts
 │   ├── README.md                     # Scripts usage guide
 │   ├── simulate-users.py             # User behavior simulation
 │   ├── test-scenarios.sh             # Test order scenarios
 │   ├── test-complete-workflow.sh     # Run complete workflow test
-│   ├── generate-orders.sh            # Generate test orders
+│   ├── auto-refill-inventory.py      # Auto-refill utility for load tests
 │   ├── view-carts.py                 # View Redis carts (Python)
 │   ├── clean-database.sh             # Clean PostgreSQL data
 │   ├── clean-kafka.sh                # Clean Kafka topics
+│   ├── validate-metrics.sh           # Validate monitoring setup
 │   └── spark/                        # Spark job management
 │       ├── start-spark-jobs.sh       # Start Spark jobs
 │       ├── start-spark-jobs-with-ui.sh # Start with UI
 │       ├── submit-spark-jobs.sh      # Submit Spark jobs
-│       └── run-spark-job.sh          # Run specific Spark job
+│       ├── run-spark-job.sh          # Run specific Spark job
+│       └── monitor-spark-jobs.sh     # Monitor running jobs
 │
 ├── 📁 services/                      # Microservices (5 services)
 │   ├── cart-service/
@@ -303,14 +308,14 @@ After adding the server:
 SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;
 
 -- View revenue metrics (hourly)
-SELECT window_start, total_orders, total_revenue, avg_order_value 
+SELECT window_start, order_count, total_revenue, avg_order_value 
 FROM revenue_metrics ORDER BY window_start DESC LIMIT 20;
 
 -- View fraud alerts
-SELECT * FROM fraud_alerts ORDER BY created_at DESC LIMIT 10;
+SELECT * FROM fraud_alerts ORDER BY alert_timestamp DESC LIMIT 10;
 
 -- View cart abandonment
-SELECT * FROM cart_abandonment ORDER BY abandoned_at DESC LIMIT 10;
+SELECT * FROM cart_abandonment ORDER BY detected_at DESC LIMIT 10;
 
 -- Top selling products
 SELECT product_id, SUM(units_sold) as total_units, COUNT(*) as windows
@@ -318,8 +323,8 @@ FROM inventory_velocity
 GROUP BY product_id ORDER BY total_units DESC LIMIT 20;
 
 -- View all table sizes and record counts
-SELECT tablename, n_live_tup as records, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
-FROM pg_stat_user_tables ORDER BY tablename;
+SELECT relname as tablename, n_live_tup as records, pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size
+FROM pg_stat_user_tables ORDER BY relname;
 ```
 
 See `pgAdmin_queries.sql` for 50+ pre-written queries.
@@ -640,42 +645,54 @@ CREATE TABLE payments (
 
 -- Analytics
 CREATE TABLE revenue_metrics (
-  window_start TIMESTAMP,
-  window_end TIMESTAMP,
-  total_revenue FLOAT,
-  order_count BIGINT,
-  avg_order_value FLOAT
+  id SERIAL PRIMARY KEY,
+  window_start TIMESTAMP NOT NULL,
+  window_end TIMESTAMP NOT NULL,
+  total_revenue DECIMAL(12, 2),
+  order_count INTEGER,
+  avg_order_value DECIMAL(12, 2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE fraud_alerts (
-  user_id VARCHAR(255),
-  window_start TIMESTAMP,
-  window_end TIMESTAMP,
-  order_count BIGINT,
-  max_order_amount FLOAT,
-  payment_count BIGINT,
-  alert_type VARCHAR(100)
+  id SERIAL PRIMARY KEY,
+  alert_id VARCHAR(255) UNIQUE,
+  alert_timestamp TIMESTAMP NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  order_id VARCHAR(255),
+  alert_type VARCHAR(50),
+  severity VARCHAR(20),
+  details TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE cart_abandonment (
-  user_id VARCHAR(255),
-  product_id VARCHAR(255),
-  item_added_time TIMESTAMP
+  user_id VARCHAR(255) NOT NULL,
+  product_id VARCHAR(255) NOT NULL,
+  item_added_time TIMESTAMP NOT NULL,
+  detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE inventory_velocity (
-  product_id VARCHAR(255),
-  window_start TIMESTAMP,
-  window_end TIMESTAMP,
-  units_sold BIGINT,
-  rank INTEGER
+  id SERIAL PRIMARY KEY,
+  window_start TIMESTAMP NOT NULL,
+  window_end TIMESTAMP NOT NULL,
+  product_id VARCHAR(255) NOT NULL,
+  units_sold INTEGER,
+  revenue DECIMAL(12, 2),
+  velocity_rank INTEGER
 );
 
 CREATE TABLE operational_metrics (
-  metric_name VARCHAR(100),
-  value FLOAT,
-  topic VARCHAR(255),
-  window_start TIMESTAMP
+  id SERIAL PRIMARY KEY,
+  window_start TIMESTAMP NOT NULL,
+  window_end TIMESTAMP NOT NULL,
+  metric_name VARCHAR(255),
+  metric_value DECIMAL(12, 2),
+  threshold DECIMAL(12, 2),
+  status VARCHAR(20),
+  services_checked JSONB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 

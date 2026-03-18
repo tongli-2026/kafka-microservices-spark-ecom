@@ -199,10 +199,10 @@ def revenue_streaming():
             
         This function is called for each micro-batch (typically every few seconds)
         """
-        # Write this batch to PostgreSQL (append new windows to existing data)
+        # Write this batch to PostgreSQL (overwrite to prevent duplicates on re-runs)
         batch_df.write \
             .format("jdbc") \
-            .mode("append") \
+            .mode("overwrite") \
             .option("url", f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}") \
             .option("dbtable", "revenue_metrics") \
             .option("user", POSTGRES_USER) \

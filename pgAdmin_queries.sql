@@ -26,10 +26,10 @@ WHERE datname = 'kafka_ecom';
 -- View all tables with row counts and sizes
 SELECT 
   schemaname,
-  tablename,
+  relname as table_name,
   n_live_tup as row_count,
   n_dead_tup as dead_rows,
-  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as total_size,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as total_size,
   last_vacuum,
   last_autovacuum
 FROM pg_stat_user_tables
@@ -83,7 +83,7 @@ SELECT
   id,
   order_id,
   amount,
-  payment_method,
+  method,
   status,
   created_at
 FROM payments
@@ -105,11 +105,11 @@ SELECT
   id,
   order_id,
   amount,
-  payment_method,
+  method,
   status,
   created_at
 FROM payments
-WHERE status = 'failed'
+WHERE status = 'FAILED'
 ORDER BY created_at DESC
 LIMIT 20;
 
@@ -122,10 +122,9 @@ LIMIT 20;
 SELECT 
   window_start,
   window_end,
-  total_orders,
+  order_count,
   total_revenue,
-  avg_order_value,
-  created_at
+  avg_order_value
 FROM revenue_metrics
 ORDER BY window_start DESC
 LIMIT 10;
@@ -133,7 +132,7 @@ LIMIT 10;
 -- Revenue trend (hourly)
 SELECT 
   window_start,
-  total_orders,
+  order_count,
   total_revenue,
   avg_order_value
 FROM revenue_metrics
@@ -147,35 +146,40 @@ ORDER BY window_start DESC;
 -- View recent fraud alerts
 SELECT 
   id,
+  alert_id,
+  alert_timestamp,
+  user_id,
   order_id,
-  risk_score,
-  reason,
-  status,
+  alert_type,
+  severity,
+  details,
   created_at
 FROM fraud_alerts
-ORDER BY created_at DESC
+ORDER BY alert_timestamp DESC
 LIMIT 20;
 
--- Fraud alerts by reason
+-- Fraud alerts by type
 SELECT 
-  reason,
+  alert_type,
   COUNT(*) as count,
-  AVG(risk_score) as avg_risk_score,
-  MAX(risk_score) as max_risk_score
+  AVG(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high_severity_ratio
 FROM fraud_alerts
-GROUP BY reason
+GROUP BY alert_type
 ORDER BY count DESC;
 
--- High-risk fraud alerts (risk_score > 0.8)
+-- High-risk fraud alerts (severity HIGH)
 SELECT 
   id,
+  alert_id,
+  alert_timestamp,
+  user_id,
   order_id,
-  risk_score,
-  reason,
-  created_at
+  alert_type,
+  severity,
+  details
 FROM fraud_alerts
-WHERE risk_score > 0.8
-ORDER BY risk_score DESC
+WHERE severity = 'HIGH'
+ORDER BY alert_timestamp DESC
 LIMIT 20;
 
 
@@ -183,36 +187,42 @@ LIMIT 20;
 -- 7. CART ABANDONMENT
 -- ============================================================================
 
--- View recent abandoned carts
+-- View recent cart abandonments with product details
 SELECT 
-  id,
-  user_id,
-  cart_value,
-  items_count,
-  abandoned_at,
-  created_at
-FROM cart_abandonment
-ORDER BY abandoned_at DESC
+  ca.user_id,
+  ca.product_id,
+  ca.item_added_time,
+  p.name as product_name,
+  p.price,
+  (EXTRACT(EPOCH FROM (NOW() - ca.item_added_time)) / 3600)::INT as hours_since_added
+FROM cart_abandonment ca
+JOIN products p ON ca.product_id = p.product_id
+ORDER BY ca.item_added_time DESC
 LIMIT 20;
 
--- Cart abandonment statistics
+-- Cart abandonment products (most frequently abandoned)
 SELECT 
-  COUNT(*) as total_abandoned,
-  SUM(cart_value) as total_value,
-  AVG(cart_value) as avg_cart_value,
-  AVG(items_count) as avg_items,
-  MAX(cart_value) as max_cart_value
-FROM cart_abandonment;
+  ca.product_id,
+  p.name as product_name,
+  COUNT(*) as times_abandoned,
+  AVG(p.price) as avg_product_price,
+  COUNT(DISTINCT ca.user_id) as unique_users
+FROM cart_abandonment ca
+JOIN products p ON ca.product_id = p.product_id
+GROUP BY ca.product_id, p.name
+ORDER BY times_abandoned DESC
+LIMIT 20;
 
--- Abandonment by time of day
+-- Users with most abandoned items
 SELECT 
-  EXTRACT(HOUR FROM abandoned_at) as hour_of_day,
-  COUNT(*) as count,
-  SUM(cart_value) as total_value,
-  AVG(cart_value) as avg_value
-FROM cart_abandonment
-GROUP BY EXTRACT(HOUR FROM abandoned_at)
-ORDER BY hour_of_day;
+  ca.user_id,
+  COUNT(*) as total_abandoned_items,
+  COUNT(DISTINCT ca.product_id) as unique_products,
+  MAX(ca.item_added_time) as last_abandoned
+FROM cart_abandonment ca
+GROUP BY ca.user_id
+ORDER BY total_abandoned_items DESC
+LIMIT 20;
 
 
 -- ============================================================================
@@ -225,8 +235,8 @@ SELECT
   window_start,
   window_end,
   units_sold,
-  rank,
-  created_at
+  revenue,
+  velocity_rank
 FROM inventory_velocity
 ORDER BY window_end DESC
 LIMIT 20;
@@ -252,7 +262,7 @@ SELECT
   id,
   name,
   price,
-  stock_quantity,
+  stock,
   created_at
 FROM products
 ORDER BY created_at DESC;
@@ -262,10 +272,10 @@ SELECT
   id,
   name,
   price,
-  stock_quantity
+  stock
 FROM products
-WHERE stock_quantity < 10
-ORDER BY stock_quantity ASC;
+WHERE stock < 10
+ORDER BY stock ASC;
 
 
 -- ============================================================================
@@ -274,32 +284,164 @@ ORDER BY stock_quantity ASC;
 
 -- Processed events count
 SELECT 
-  COUNT(*) as total_processed,
   event_type,
   COUNT(*) as count
 FROM processed_events
 GROUP BY event_type
 ORDER BY count DESC;
 
+-- Event processing analysis
+SELECT 
+  'Total processed events' as metric,
+  COUNT(*) as count
+FROM processed_events
+
+UNION ALL
+
+SELECT 
+  CONCAT('Events - ', event_type) as metric,
+  COUNT(*) as count
+FROM processed_events
+GROUP BY event_type;
+
 -- Recent events
 SELECT 
   id,
+  event_id,
   event_type,
-  user_id,
-  created_at
+  processed_at
 FROM processed_events
-ORDER BY created_at DESC
+ORDER BY processed_at DESC
 LIMIT 20;
 
 -- Outbox events (pending delivery)
 SELECT 
   COUNT(*) as pending_events
 FROM outbox_events
-WHERE is_processed = false;
+WHERE published = 'N';
 
 
 -- ============================================================================
--- 11. DATABASE MAINTENANCE
+-- 11. STOCK RESERVATIONS
+-- ============================================================================
+
+-- View recent stock reservations
+SELECT 
+  id,
+  order_id,
+  product_id,
+  quantity,
+  created_at
+FROM stock_reservations
+ORDER BY created_at DESC
+LIMIT 20;
+
+-- Stock reservation statistics
+SELECT 
+  product_id,
+  COUNT(*) as total_reservations,
+  SUM(quantity) as total_reserved,
+  AVG(quantity) as avg_reserved
+FROM stock_reservations
+GROUP BY product_id
+ORDER BY total_reserved DESC;
+
+-- Pending reservations by product
+SELECT 
+  product_id,
+  COUNT(*) as count,
+  SUM(quantity) as total_quantity
+FROM stock_reservations
+GROUP BY product_id
+ORDER BY count DESC;
+
+
+-- ============================================================================
+-- 12. OPERATIONAL METRICS (Spark Analytics)
+-- ============================================================================
+
+-- View recent operational metrics
+SELECT 
+  metric_name,
+  metric_value,
+  status,
+  window_start
+FROM operational_metrics
+ORDER BY window_start DESC
+LIMIT 20;
+
+-- Operational metrics by status
+SELECT 
+  status,
+  metric_name,
+  AVG(metric_value) as avg_value,
+  MAX(metric_value) as max_value,
+  MIN(metric_value) as min_value,
+  COUNT(*) as measurements
+FROM operational_metrics
+GROUP BY status, metric_name
+ORDER BY status, metric_name;
+
+-- Operational metrics trend
+SELECT 
+  DATE_TRUNC('hour', window_start) as hour,
+  metric_name,
+  AVG(metric_value) as avg_value,
+  MAX(metric_value) as max_value
+FROM operational_metrics
+GROUP BY DATE_TRUNC('hour', window_start), metric_name
+ORDER BY hour DESC
+LIMIT 24;
+
+
+-- ============================================================================
+-- 13. SPARK ANALYTICS DATA FRESHNESS
+-- ============================================================================
+
+-- Check how recent each analytics table's data is
+SELECT 
+  'revenue_metrics' as table_name,
+  MAX(window_end) as last_update,
+  NOW() - MAX(window_end) as age
+FROM revenue_metrics
+
+UNION ALL
+
+SELECT 
+  'fraud_alerts' as table_name,
+  MAX(alert_timestamp) as last_update,
+  NOW() - MAX(alert_timestamp) as age
+FROM fraud_alerts
+
+UNION ALL
+
+SELECT 
+  'cart_abandonment' as table_name,
+  MAX(detected_at) as last_update,
+  NOW() - MAX(detected_at) as age
+FROM cart_abandonment
+
+UNION ALL
+
+SELECT 
+  'inventory_velocity' as table_name,
+  MAX(window_end) as last_update,
+  NOW() - MAX(window_end) as age
+FROM inventory_velocity
+
+UNION ALL
+
+SELECT 
+  'operational_metrics' as table_name,
+  MAX(window_start) as last_update,
+  NOW() - MAX(window_start) as age
+FROM operational_metrics
+
+ORDER BY age DESC;
+
+
+-- ============================================================================
+-- 14. DATABASE MAINTENANCE
 -- ============================================================================
 
 -- View table sizes (for optimization)
@@ -324,21 +466,31 @@ ORDER BY ABS(correlation) DESC;
 
 
 -- ============================================================================
--- 12. PERFORMANCE MONITORING
+-- 15. PERFORMANCE MONITORING
 -- ============================================================================
 
--- Slow queries (if pg_stat_statements is enabled)
+-- Active database connections
 SELECT 
-  query,
-  calls,
-  total_time,
-  mean_time,
-  max_time
-FROM pg_stat_statements
-ORDER BY total_time DESC
-LIMIT 10;
+  datname as database,
+  COUNT(*) as active_connections,
+  MAX(EXTRACT(EPOCH FROM (NOW() - query_start))) as longest_query_seconds
+FROM pg_stat_activity
+WHERE datname = 'kafka_ecom'
+GROUP BY datname;
 
--- Lock information
+-- Long-running queries
+SELECT 
+  pid,
+  usename,
+  application_name,
+  query_start,
+  EXTRACT(EPOCH FROM (NOW() - query_start)) as duration_seconds,
+  query
+FROM pg_stat_activity
+WHERE datname = 'kafka_ecom'
+AND state != 'idle'
+ORDER BY query_start ASC
+LIMIT 10;
 SELECT 
   pid,
   usename,
@@ -348,4 +500,130 @@ SELECT
 FROM pg_stat_activity
 WHERE state != 'idle'
 ORDER BY query_start DESC;
+
+
+-- ============================================================================
+-- 16. DATA CONSISTENCY DIAGNOSTICS
+-- ============================================================================
+
+-- Complete order status breakdown
+SELECT 
+  'Total orders' as metric,
+  COUNT(*) as count
+FROM orders
+
+UNION ALL
+
+SELECT 
+  CONCAT('Orders - ', status) as metric,
+  COUNT(*) as count
+FROM orders
+GROUP BY status
+
+UNION ALL
+
+SELECT 
+  'Total payments' as metric,
+  COUNT(*) as count
+FROM payments
+
+UNION ALL
+
+SELECT 
+  CONCAT('Payments - ', status) as metric,
+  COUNT(*) as count
+FROM payments
+GROUP BY status;
+
+-- Orders vs Payments mismatch (original check)
+SELECT 
+  'FULFILLED orders' as metric,
+  COUNT(*) as count
+FROM orders
+WHERE status = 'FULFILLED'
+
+UNION ALL
+
+SELECT 
+  'Successful payments' as metric,
+  COUNT(*) as count
+FROM payments
+WHERE status = 'SUCCESS'
+
+UNION ALL
+
+SELECT 
+  'All payments' as metric,
+  COUNT(*) as count
+FROM payments;
+
+-- Find FULFILLED orders without corresponding payment
+SELECT 
+  o.order_id,
+  o.user_id,
+  o.total_amount,
+  o.created_at,
+  p.payment_id
+FROM orders o
+LEFT JOIN payments p ON o.order_id = p.order_id
+WHERE o.status = 'FULFILLED'
+AND p.id IS NULL
+ORDER BY o.created_at DESC;
+
+-- Find payments without corresponding FULFILLED order
+SELECT 
+  p.payment_id,
+  p.order_id,
+  p.status,
+  p.created_at,
+  o.status as order_status
+FROM payments p
+LEFT JOIN orders o ON p.order_id = o.order_id
+WHERE p.status = 'SUCCESS'
+AND (o.id IS NULL OR o.status != 'FULFILLED')
+ORDER BY p.created_at DESC;
+
+
+-- ============================================================================
+-- 17. EVENT PROCESSING DIAGNOSTICS
+-- ============================================================================
+
+-- Orders fulfillment events vs actual fulfilled orders
+SELECT 
+  'order.fulfilled events processed' as metric,
+  COUNT(*) as count
+FROM processed_events
+WHERE event_type = 'order.fulfilled'
+
+UNION ALL
+
+SELECT 
+  'Actual FULFILLED orders' as metric,
+  COUNT(*) as count
+FROM orders
+WHERE status = 'FULFILLED'
+
+UNION ALL
+
+SELECT 
+  'payment.processed events processed' as metric,
+  COUNT(*) as count
+FROM processed_events
+WHERE event_type = 'payment.processed'
+
+UNION ALL
+
+SELECT 
+  'Actual SUCCESS payments' as metric,
+  COUNT(*) as count
+FROM payments
+WHERE status = 'SUCCESS';
+
+-- Find order IDs from fulfilled events that might not have orders
+SELECT 
+  COUNT(DISTINCT pe.event_id) as total_fulfilled_events,
+  COUNT(DISTINCT CASE WHEN o.id IS NOT NULL THEN pe.event_id END) as events_with_matching_orders
+FROM processed_events pe
+LEFT JOIN orders o ON o.order_id LIKE '%' || pe.event_id || '%'
+WHERE pe.event_type = 'order.fulfilled';
 
