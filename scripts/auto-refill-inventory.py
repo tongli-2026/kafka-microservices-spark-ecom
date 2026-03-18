@@ -166,7 +166,7 @@ DATABASE OPERATIONS:
     Before each check:
     - Query: SELECT product_id, stock FROM products;
     - Per product below threshold:
-      UPDATE products SET stock = stock + :refill_qty, version = version + 1
+      UPDATE products SET stock = stock + :refill_qty, version = version + 1, updated_at = NOW()
       WHERE product_id = :pid
 
 GRACEFUL SHUTDOWN:
@@ -383,9 +383,10 @@ class InventoryRefillService:
             
             # Update stock using version-safe increment
             # This matches the optimistic locking pattern in the codebase
+            # Also update updated_at timestamp to track when stock was last changed
             cursor.execute(
                 """UPDATE products 
-                   SET stock = stock + %s, version = version + 1
+                   SET stock = stock + %s, version = version + 1, updated_at = NOW()
                    WHERE product_id = %s;""",
                 (self.refill_quantity, product_id)
             )
