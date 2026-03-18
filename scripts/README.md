@@ -17,6 +17,7 @@ scripts/
 │   ├── clean-database.sh              # Clean/reset PostgreSQL tables
 │   ├── clean-kafka.sh                 # Clean/reset Kafka topics and data
 │   ├── auto-refill-inventory.py       # Auto-refill inventory for load tests
+│   ├── kill-auto-refill.sh            # Stop the auto-refill inventory service
 │   ├── dashboard-sync.sh              # Sync Grafana dashboards
 │   └── schedule-inventory-velocity.sh # Schedule hourly inventory velocity job (cron utility)
 │
@@ -88,6 +89,15 @@ bash scripts/clean-kafka.sh
 
 # Heavy stress test
 .venv/bin/python scripts/auto-refill-inventory.py --threshold 10 --refill-quantity 200 --interval 5
+```
+
+**Stop the auto-refill service**:
+```bash
+# Graceful shutdown (recommended)
+bash scripts/kill-auto-refill.sh
+
+# Force kill if process is stuck
+bash scripts/kill-auto-refill.sh --force
 ```
 
 **Sync Grafana dashboards**:
