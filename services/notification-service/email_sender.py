@@ -2,19 +2,19 @@
 email_sender.py - Email Delivery Module for Notification Service
 
 PURPOSE:
-    Sends transactional emails via Mailhog SMTP server. Integrates with
+    Sends transactional emails via Mailpit SMTP server. Integrates with
     Notification Service to deliver order confirmations, payment updates,
     and shipment notifications to customers.
 
 FUNCTIONALITY:
-    - Connect to Mailhog SMTP (development/testing email gateway)
+    - Connect to Mailpit SMTP (development/testing email gateway)
     - Format and send plain-text emails with subject and body
     - Handle SMTP connection errors gracefully with logging
-    - No authentication required (Mailhog is open for testing)
+    - No authentication required (Mailpit is open for testing)
     - Return success/failure status for retry logic
 
 USAGE:
-    sender = EmailSender(mailhog_host="mailhog", mailhog_port=1025)
+    sender = EmailSender(mailpit_host="mailpit", mailpit_port=1025)
     success = sender.send_email(
         to_email="customer@example.com",
         subject="Order Confirmation #ORD-12345",
@@ -22,8 +22,8 @@ USAGE:
     )
 
 CONFIGURATION:
-    - MAILHOG_HOST: Default "mailhog" (Docker service name)
-    - MAILHOG_PORT: Default 1025 (SMTP port)
+    - MAILPIT_HOST: Default "mailpit" (Docker service name)
+    - MAILPIT_PORT: Default 1025 (SMTP port)
     - FROM_EMAIL: Hardcoded as "noreply@kafka-ecom.local"
 
 INTEGRATION:
@@ -35,7 +35,7 @@ INTEGRATION:
     - inventory.low → Low stock warning email
     - payment.failed → Payment failure notification email
     
-    Mailhog provides web UI (http://mailhog:8025) for testing/verification.
+    Mailpit provides web UI (http://mailpit:8025) for testing/verification.
 
 ERROR HANDLING:
     - Logs all SMTP errors without raising exceptions
@@ -52,15 +52,15 @@ logger = logging.getLogger(__name__)
 
 
 class EmailSender:
-    """Email sender using Mailhog SMTP."""
+    """Email sender using Mailpit SMTP."""
 
-    def __init__(self, mailhog_host: str, mailhog_port: int):
+    def __init__(self, mailpit_host: str, mailpit_port: int):
         """Initialize email sender."""
-        self.mailhog_host = mailhog_host
-        self.mailhog_port = mailhog_port
+        self.mailpit_host = mailpit_host
+        self.mailpit_port = mailpit_port
 
     def send_email(self, to_email: str, subject: str, body: str) -> bool:
-        """Send email via Mailhog SMTP."""
+        """Send email via Mailpit SMTP."""
         try:
             # Create email message
             msg = MIMEMultipart()
@@ -70,8 +70,8 @@ class EmailSender:
 
             msg.attach(MIMEText(body, "plain"))
 
-            # Connect to Mailhog SMTP (no authentication needed)
-            with smtplib.SMTP(self.mailhog_host, self.mailhog_port) as server:
+            # Connect to Mailpit SMTP (no authentication needed)
+            with smtplib.SMTP(self.mailpit_host, self.mailpit_port) as server:
                 server.send_message(msg)
 
             logger.info(f"Email sent to {to_email}: {subject}")

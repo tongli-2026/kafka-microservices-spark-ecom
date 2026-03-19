@@ -141,9 +141,9 @@ services:
       timeout: 5s
       retries: 5
 
-  mailhog:
+  mailpit:
     image: axllent/mailpit:latest
-    container_name: mailhog
+    container_name: mailpit
     ports:
       - "1025:1025"  # SMTP
       - "8025:8025"  # Web UI
@@ -285,16 +285,16 @@ services:
         condition: service_started
       kafka-broker-3:
         condition: service_started
-      # mailhog is a critical dependency for the notification-service, as it relies on MailHog to capture and manage outgoing emails for testing purposes.
-      # Therefore, we use the `service_healthy` condition to ensure that the notification-service only starts after MailHog is ready to accept connections and operate correctly. 
-      mailhog:
+      # mailpit is a critical dependency for the notification-service, as it relies on Mailpit to capture and manage outgoing emails for testing purposes.
+      # Therefore, we use the `service_healthy` condition to ensure that the notification-service only starts after Mailpit is ready to accept connections and operate correctly. 
+      mailpit:
         condition: service_healthy
     networks:
       - kafka-network
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
-      - MAILHOG_HOST=mailhog
-      - MAILHOG_PORT=1025
+      - MAILPIT_HOST=mailpit
+      - MAILPIT_PORT=1025
       - ADMIN_EMAIL=admin@kafka-ecom.local
       - TZ=America/Los_Angeles
 

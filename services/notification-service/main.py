@@ -3,7 +3,7 @@ notification-service/main.py - Email Notification Microservice
 
 PURPOSE:
     Sends email notifications to users and administrators based on
-    e-commerce events. Integrates with Mailhog (SMTP server).
+    e-commerce events. Integrates with Mailpit (SMTP server).
 
 NOTIFICATION TYPES:
     - Order confirmations (to users)
@@ -17,7 +17,7 @@ NOTIFICATION TYPES:
 RESPONSIBILITIES:
     - Listen to various Kafka events
     - Generate appropriate email content
-    - Send emails via SMTP (Mailhog)
+    - Send emails via SMTP (Mailpit)
     - Log all notification attempts
     - Handle email delivery failures
 
@@ -32,8 +32,8 @@ KAFKA EVENTS CONSUMED:
     - inventory.low: Send low stock warning to admins
 
 EMAIL SERVER:
-    - Mailhog SMTP server (development/testing)
-    - Host: mailhog (Docker container)
+    - Mailpit SMTP server (development/testing)
+    - Host: mailpit (Docker container)
     - Port: 1025
     - Web UI: http://localhost:8025
 
@@ -48,7 +48,7 @@ EMAIL TEMPLATES:
 
 USAGE:
     Runs on port 8005 in Docker container
-    Check sent emails: http://localhost:8025 (Mailhog UI)
+    Check sent emails: http://localhost:8025 (Mailpit UI)
 """
 
 import logging
@@ -91,8 +91,8 @@ class Settings(BaseSettings):
     """Application settings."""
 
     kafka_bootstrap_servers: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    mailhog_host: str = os.getenv("MAILHOG_HOST", "localhost")
-    mailhog_port: int = int(os.getenv("MAILHOG_PORT", "1025"))
+    mailpit_host: str = os.getenv("MAILPIT_HOST", "localhost")
+    mailpit_port: int = int(os.getenv("MAILPIT_PORT", "1025"))
     admin_email: str = os.getenv("ADMIN_EMAIL", "admin@kafka-ecom.local")
     notification_service_port: int = int(os.getenv("NOTIFICATION_SERVICE_PORT", "8005"))
 
@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI):
         # Initialize Kafka producer for publishing notification.send events (email request tracking)
         producer = BaseKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
 
-        email_sender = EmailSender(settings.mailhog_host, settings.mailhog_port)
+        email_sender = EmailSender(settings.mailpit_host, settings.mailpit_port)
 
         def handle_event(event):
             """Handle incoming events."""

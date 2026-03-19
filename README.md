@@ -2,7 +2,7 @@
 
 A complete event-driven e-commerce backend built with Apache Kafka, FastAPI microservices, PostgreSQL, Redis, and PySpark analytics.
 
-**Live Components**: Kafka (3 brokers), PostgreSQL, Redis, Spark (1 master + 2 workers), FastAPI microservices, pgAdmin, Mailhog, Kafka UI
+**Live Components**: Kafka (3 brokers), PostgreSQL, Redis, Spark (1 master + 2 workers), FastAPI microservices, pgAdmin, Mailpit, Kafka UI
 
 ## Table of Contents
 
@@ -19,9 +19,10 @@ A complete event-driven e-commerce backend built with Apache Kafka, FastAPI micr
 11. [Configuration](#configuration)
 12. [Spark Cluster Details](#spark-cluster-details)
 13. [Monitoring & Development](#monitoring--development)
-14. [Troubleshooting](#troubleshooting)
-15. [Cleanup](#cleanup)
-16. [Architecture Highlights](#architecture-highlights)
+14. [Prometheus & Grafana Setup Guide](#prometheus--grafana-setup-guide)
+15. [Troubleshooting](#troubleshooting)
+16. [Cleanup](#cleanup)
+17. [Architecture Highlights](#architecture-highlights)
 
 ## Architecture
 
@@ -30,7 +31,7 @@ A complete event-driven e-commerce backend built with Apache Kafka, FastAPI micr
 - **Order Service** (Port 8002): Order orchestration with saga pattern and background fulfillment job
 - **Payment Service** (Port 8003): Payment processing (80% success rate)
 - **Inventory Service** (Port 8004): Stock management with optimistic locking
-- **Notification Service** (Port 8005): Email notifications via Mailhog
+- **Notification Service** (Port 8005): Email notifications via Mailpit
 
 ### Data Infrastructure
 - **Kafka Cluster**: 3-broker KRaft cluster with Kafka UI
@@ -81,13 +82,18 @@ kafka-microservices-spark-ecom/
 │   ├── view-carts.py                 # View Redis carts (Python)
 │   ├── clean-database.sh             # Clean PostgreSQL data
 │   ├── clean-kafka.sh                # Clean Kafka topics
+│   ├── dashboard-sync.sh             # Sync Grafana dashboards
 │   ├── validate-metrics.sh           # Validate monitoring setup
+│   ├── schedule-inventory-velocity.sh # Schedule inventory velocity job
+│   ├── kill-auto-refill.sh           # Stop auto-refill service
 │   └── spark/                        # Spark job management
-│       ├── start-spark-jobs.sh       # Start Spark jobs
-│       ├── start-spark-jobs-with-ui.sh # Start with UI
-│       ├── submit-spark-jobs.sh      # Submit Spark jobs
+│       ├── cleanup-checkpoints.sh    # Clean Spark checkpoints
+│       ├── kill-spark-jobs.sh        # Kill running Spark jobs
+│       ├── monitor-spark-jobs.sh     # Monitor running jobs
+│       ├── quick-status.sh           # Quick status check
+│       ├── restart-job.sh            # Restart specific job
 │       ├── run-spark-job.sh          # Run specific Spark job
-│       └── monitor-spark-jobs.sh     # Monitor running jobs
+│       └── start-spark-jobs.sh       # Start all Spark jobs
 │
 ├── 📁 services/                      # Microservices (5 services)
 │   ├── cart-service/
@@ -129,6 +135,8 @@ kafka-microservices-spark-ecom/
 ├── 📁 analytics/                     # Spark Cluster & Jobs
 │   ├── spark_session.py              # Spark session factory
 │   ├── Dockerfile                    # Spark cluster Docker image
+│   ├── Dockerfile.exporter           # Metrics exporter Docker image
+│   ├── metrics_exporter.py           # Spark metrics exporter
 │   ├── requirements.txt              # Spark dependencies
 │   │
 │   └── jobs/                         # Streaming jobs (5 jobs)
@@ -137,6 +145,21 @@ kafka-microservices-spark-ecom/
 │       ├── cart_abandonment.py       # 30-min cart abandonment
 │       ├── inventory_velocity.py     # 1-hour inventory analysis
 │       └── operational_metrics.py    # Topic-level monitoring
+│
+├── 📁 monitoring/                    # Monitoring & Observability
+│   ├── Dockerfile.grafana            # Grafana Docker image
+│   ├── Dockerfile.prometheus         # Prometheus Docker image
+│   ├── prometheus.yml                # Prometheus configuration
+│   ├── dashboards/                   # Grafana dashboards (JSON)
+│   │   ├── microservices-dashboard.json
+│   │   ├── order-fulfillment-dashboard.json
+│   │   ├── financial-operations-dashboard.json
+│   │   ├── customer-experience-dashboard.json
+│   │   ├── infrastructure-health-dashboard.json
+│   │   └── spark-analytics-dashboard.json
+│   └── provisioning/                 # Grafana provisioning
+│       ├── dashboards.yml            # Dashboard provisioning config
+│       └── datasources.yml           # Data source provisioning config
 │
 ├── 📁 shared/                        # Shared utilities
 │   ├── database.py                   # PostgreSQL client
@@ -163,6 +186,20 @@ kafka-microservices-spark-ecom/
 - 5 streaming jobs reading from Kafka topics
 - Results written to PostgreSQL analytics tables
 - Watermarking, windowing, and stateful operations
+- Metrics exporter for Prometheus integration
+
+**monitoring/** - Observability Stack
+- Prometheus: Metrics collection and time-series database
+- Grafana: Dashboard visualization and alerting
+- 6 pre-built dashboards for different teams (microservices, order fulfillment, financial ops, customer experience, infrastructure health, spark analytics)
+- Provisioning configs for automatic dashboard/datasource setup
+
+**scripts/** - Helper Scripts & Automation
+- User simulation and workflow testing
+- Database and Kafka cleanup utilities
+- Spark job management (start, stop, monitor, restart)
+- Checkpoint cleanup and status checking
+- 7 scripts in root + 7 Spark management scripts
 
 **shared/** - Common Code
 - Kafka client with retry logic and DLQ support
@@ -207,7 +244,7 @@ open http://localhost:8080
 # Spark Master UI
 open http://localhost:9080
 
-# Mailhog Web UI (emails)
+# Mailpit Web UI (emails)
 open http://localhost:8025
 ```
 
@@ -241,14 +278,16 @@ All UIs are now configured to use **Seattle Timezone (America/Los_Angeles)** for
 
 | Service | URL | Credentials | Purpose |
 |---------|-----|-------------|---------|
-| **Kafka UI** | http://localhost:8080 | None | View topics, partitions, messages |
-| **Spark Master** | http://localhost:9080 | None | Monitor cluster resources |
-| **Spark Worker 1** | http://localhost:8081 | None | Worker 1 tasks and executor details |
-| **Spark Worker 2** | http://localhost:8082 | None | Worker 2 tasks and executor details |
-| **Spark Driver UI** | http://localhost:4040 | None | Active job SQL and streaming stats |
-| **pgAdmin** | http://localhost:5050 | See below | PostgreSQL database browser |
-| **Mailhog** | http://localhost:8025 | None | Email testing and viewing |
-| **Redis Commander** | http://localhost:6379 | None | Redis key-value browser |
+| **Kafka UI** | http://localhost:8080 | None | View topics, partitions, messages, consumer groups |
+| **Spark Master UI** | http://localhost:9080 | None | Monitor cluster resources, workers, applications |
+| **Spark Worker 1 UI** | http://localhost:8081 | None | Worker 1 executor tasks and resource details |
+| **Spark Worker 2 UI** | http://localhost:8082 | None | Worker 2 executor tasks and resource details |
+| **Spark Driver UI** | http://localhost:4040 | None | Active job SQL execution plans and streaming stats |
+| **Prometheus** | http://localhost:9090 | None | Metrics collection, queries, and time-series data |
+| **Grafana** | http://localhost:3000 | admin / admin | Pre-built dashboards for all system components |
+| **pgAdmin** | http://localhost:5050 | admin@kafka-ecom.com / admin | PostgreSQL database browser and query tool |
+| **Mailpit** | http://localhost:8025 | None | Email capture, testing, and viewing interface |
+| **Redis** | localhost:6379 | None | In-memory cache (CLI: `redis-cli`) |
 
 ### pgAdmin Setup (PostgreSQL Browser)
 
@@ -811,10 +850,10 @@ User checks out
    - Event consumed: `order.confirmed`
    - Publishes: `notification.send` event
    - Producer: Notification Service
-   - Consumer: Mailhog (Email Service)
+   - Consumer: Mailpit (Email Service)
 
 9. **Email delivered**
-   - Order confirmation email sent via Mailhog
+   - Order confirmation email sent via Mailpit
 
 10. **Order Service fulfillment job publishes** 
     - Event: `order.fulfilled` (Order shipped with tracking number)
@@ -826,7 +865,7 @@ User checks out
     - Includes: Tracking number, estimated delivery date
     - Publishes: `notification.send` event
     - Producer: Notification Service
-    - Consumer: Mailhog (Email Service)
+    - Consumer: Mailpit (Email Service)
 
 12. **Shipment email delivered**
     - Order shipment confirmation with tracking number sent to customer
@@ -853,7 +892,7 @@ User checks out
    - Event: `order.cancelled` (consumed)
    - Publishes: `notification.send` event
    - Producer: Notification Service
-   - Consumer: Mailhog (Email Service)
+   - Consumer: Mailpit (Email Service)
    - Result: Customer receives "Sorry, out of stock" email
    - **CUSTOMER NOT CHARGED** ✓
 
@@ -879,7 +918,7 @@ User checks out
 4. **Notification Service sends failure email** 
    - Event: `order.cancelled` (consumed)
    - Producer: Notification Service (publishes `notification.send`)
-   - Consumer: Mailhog (Email Service)
+   - Consumer: Mailpit (Email Service)
    - Result: Payment failure/cancellation email sent to customer
 
 ### Order Status Lifecycle
@@ -952,7 +991,7 @@ All topics are created with:
 │  └─ payment.failed ✗ ──────────────→ Order Service                            │
 │                                                                               │
 │  SYSTEM EVENTS:                                                               │
-│  ├─ notification.send ──────────────→ Mailhog (Email Service)                 │
+│  ├─ notification.send ──────────────→ Mailpit (Email Service)                 │
 │  ├─ fraud.detected ─────────────────→ Fraud Detection (Spark)                 │
 │  └─ dlq.events ─────────────────────→ Dead Letter Queue                       │
 │                                                                               │
@@ -981,7 +1020,7 @@ Legend:
 | `inventory.low` | Low stock alert | Inventory Service | Notification Service |
 | `payment.processed` | Payment successful ✓ | Payment Service | Order Service |
 | `payment.failed` | Payment failed ✗ | Payment Service | Order Service |
-| `notification.send` | Send email notification | Notification Service | Mailhog (Email Service) |
+| `notification.send` | Send email notification | Notification Service | Mailpit (Email Service) |
 | `fraud.detected` | Fraud detection alert | Fraud Detection (Spark) | Monitoring |
 | `dlq.events` | Failed message processing | Any Service | Dead Letter Handler |
 
@@ -1142,8 +1181,8 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 
 # Email
-MAILHOG_HOST=mailhog
-MAILHOG_PORT=1025
+MAILPIT_HOST=mailpit
+MAILPIT_PORT=1025
 ADMIN_EMAIL=admin@kafka-ecom.local
 
 # Service Ports
@@ -1167,6 +1206,11 @@ FULFILLMENT_DELAY_SECONDS=5        # Delay before marking order fulfilled (simul
 
 ## Monitoring & Development
 
+### Docker Container Architecture
+
+![Docker Containers Overview](./images/docker_containers.png)
+*Docker Containers - All 21 containers running in the system architecture*
+
 ### Running Single Service
 
 ```bash
@@ -1185,10 +1229,19 @@ python main.py
 - View topics, partitions, consumer groups
 - Inspect messages in real-time
 
+![Kafka UI - Topics Overview](./images/kafka-ui-topics-overview.png)
+*Kafka UI - Topics Overview showing all topics and partitions*
+
+![Kafka UI - Message Details](./images/kafka-ui-topics-message.png)
+*Kafka UI - Message Details for real-time message inspection*
+
 **Spark Master UI**: http://localhost:9080
 - Monitor cluster resources (workers, cores, memory)
 - Track running applications and jobs
 - View application history
+
+![Spark Master - Workers Overview](./images/spark_workers.png)
+*Spark Master - Workers status and resources*
 
 **Spark Worker UIs**:
 - Worker 1: http://localhost:8081
@@ -1199,9 +1252,323 @@ python main.py
 - Streaming query statistics
 - Storage and executor details
 
-**Mailhog**: http://localhost:8025
+![Spark Jobs](./images/spark_jobs.png)
+*Spark Master - Job execution details and status*
+
+![Spark Streaming Query Statistics](./images/spark_streaming_query_statistics.png)
+*Spark Driver UI - Real-time query statistics and metrics*
+
+**pgAdmin**: http://localhost:5050 (admin@kafka-ecom.com / admin)
+- PostgreSQL database browser and management
+- View tables, schemas, and relationships
+- Run SQL queries directly
+
+![pgAdmin - Database Browser](./images/pgadmin-database-browser.png)
+*pgAdmin - Database browser showing all tables and schemas*
+
+![pgAdmin - Database Tables](./images/pgadmin-database-tables.png)
+*pgAdmin - Table structure and content viewer*
+
+**Mailpit**: http://localhost:8025
 - View all sent emails
 - SMTP on port 1025
+
+![Mailpit - Email Testing Interface](./images/mailpit.png)
+*Mailpit - Email capture and testing interface*
+
+**Prometheus**: http://localhost:9090
+- Time-series metric collection
+- Query builder for custom metrics
+- Alert management
+
+![Prometheus Endpoints](./images/prometheus_endpoints.png)
+*Prometheus - Service endpoints and metrics collection*
+
+![Prometheus Query Graph](./images/prometheus_query_graph.png)
+*Prometheus - Query graph showing metrics over time*
+
+**Grafana**: http://localhost:3000 (admin/admin)
+- Pre-built dashboards for all components
+- Custom metric visualization
+- Alert notifications
+
+![Grafana - Microservices Dashboard](./images/grafana-dashboard-microservices_1.png)
+*Grafana - Microservices Dashboard #1 with service metrics*
+
+![Grafana - Microservices Dashboard #2](./images/grafana-dashboard-microservices_2.png)
+*Grafana - Microservices Dashboard #2 with additional service metrics*
+
+![Grafana - Customer Experience Dashboard](./images/grafana-dashboard-customer_experiecne.png)
+*Grafana - Customer Experience Dashboard tracking user behavior*
+
+![Grafana - Financial Operation Dashboard](./images/grafana-dashboard-financial_operation.png)
+*Grafana - Financial Operation Dashboard showing payment metrics and revenue*
+
+![Grafana - Order Fulfillment Dashboard](./images/grafana-dashboard-order_fulfillment.png)
+*Grafana - Order Fulfillment Dashboard tracking order statuses and completion rates*
+
+![Grafana - Infrastructure Health Dashboard](./images/grafana-dashboard-infrastructure_health.png)
+*Grafana - Infrastructure Health Dashboard monitoring system resources*
+
+![Grafana - Spark Analysis Dashboard #1](./images/grafana-dashboard-spark_analysis_1.png)
+*Grafana - Spark Analysis Dashboard #1 with streaming job outputs*
+
+![Grafana - Spark Analysis Dashboard #2](./images/grafana-dashboard-spark_analysis_2.png)
+*Grafana - Spark Analysis Dashboard #2 with advanced analytics insights*
+
+## Prometheus & Grafana Setup Guide
+
+### Quick Start
+
+**1. Access Services**
+```
+Prometheus: http://localhost:9090
+Grafana:    http://localhost:3000 (admin/admin)
+```
+
+**2. Configure Prometheus Data Source in Grafana**
+
+By default, Grafana is pre-configured with Prometheus as a data source. To verify or reconfigure:
+
+1. Open Grafana: http://localhost:3000
+2. Login: `admin/admin`
+3. Go to **Configuration** → **Data Sources**
+4. You should see "Prometheus" already configured with URL: `http://prometheus:9090`
+5. Click **Test** to verify connection
+
+If the data source is missing:
+- Click **Add data source** → Select **Prometheus**
+- Set URL to: `http://prometheus:9090`
+- Click **Save & Test**
+
+### What is Prometheus?
+
+**Prometheus** is a time-series database for collecting metrics from your services. Key concepts:
+
+| Concept | Explanation |
+|---------|------------|
+| **Metrics** | Time-series data points (e.g., `http_requests_total`, `payment_success_rate`) |
+| **Labels** | Metadata tags (e.g., `service="order"`, `endpoint="/orders"`) |
+| **Scrape** | Prometheus pulls metrics from `/metrics` endpoint every 15 seconds |
+| **Query** | PromQL language to filter and aggregate metrics |
+
+### Collecting Metrics
+
+All services expose metrics on `/metrics` endpoint:
+
+```bash
+# Cart Service
+curl http://localhost:8001/metrics
+
+# Order Service
+curl http://localhost:8002/metrics
+
+# Payment Service
+curl http://localhost:8003/metrics
+
+# Inventory Service
+curl http://localhost:8004/metrics
+
+# Notification Service
+curl http://localhost:8005/metrics
+```
+
+Example output:
+```
+# HELP http_requests_total Total HTTP requests by service
+# TYPE http_requests_total counter
+http_requests_total{service="cart",method="POST",status="200"} 1234
+http_requests_total{service="order",method="GET",status="200"} 5678
+```
+
+### Common Prometheus Queries
+
+Use these queries in Prometheus Query Builder (http://localhost:9090):
+
+**1. Request Rate (requests per second) by Service**
+```promql
+rate(http_requests_total[1m])
+```
+- Shows how many requests each service is receiving per second
+- `[1m]` = calculate rate over 1-minute window
+- Use for: Monitoring traffic, detecting spikes, debugging load
+
+**2. Error Rate by Service**
+```promql
+rate(http_requests_total{status=~"5.."}[1m]) / rate(http_requests_total[1m]) * 100
+```
+- Percentage of requests returning 5xx errors
+- Target: < 1% in healthy system
+- Use for: Alerting on service failures, debugging issues
+
+**3. Payment Success Rate (Last Hour)**
+```promql
+sum(rate(payment_processing_total{status="success"}[1h])) / sum(rate(payment_processing_total[1h])) * 100
+```
+- Payment success percentage
+- Target: > 95%
+- Use for: Financial monitoring, SLA tracking
+
+**4. Order Processing Latency P95 (95th Percentile)**
+```promql
+histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m]))
+```
+- 95% of orders complete within this time
+- Target: < 1 second
+- Use for: Performance SLA tracking, debugging slowdowns
+
+**5. Inventory Reservation Success Rate**
+```promql
+sum(rate(inventory_reservation_total{status="success"}[1h])) / sum(rate(inventory_reservation_total[1h])) * 100
+```
+- Stock reservation success percentage
+- Target: > 98%
+- Use for: Inventory system health, overselling detection
+
+**6. Cart Operations Breakdown**
+```promql
+sum by (operation) (rate(cart_operations_total[1m]))
+```
+- Requests per second by operation (add, remove, update)
+- Use for: Understanding customer behavior, cart service load
+
+**7. Database Connection Pool Usage**
+```promql
+(pg_stat_activity_count / pg_setting_max_connections) * 100
+```
+- Active database connections as % of max pool
+- Alert if > 80%
+- Use for: Database performance, connection leak detection
+
+**8. Saga Compensation Rate (Rollbacks)**
+```promql
+rate(saga_compensation_total[5m])
+```
+- Transactions being rolled back due to failures
+- Target: < 1% of orders
+- Use for: System reliability, transaction integrity
+
+**9. Idempotency Cache Hit Rate**
+```promql
+rate(idempotency_cache_hits_total[1m]) / (rate(idempotency_cache_hits_total[1m]) + rate(idempotency_cache_misses_total[1m])) * 100
+```
+- Cache effectiveness for preventing duplicate processing
+- Target: > 90%
+- Use for: Financial reliability, duplicate prevention
+
+**10. Kafka Message Publishing Rate by Topic**
+```promql
+sum by (topic) (rate(kafka_message_published_total[1m]))
+```
+- Messages/second per topic
+- Use for: Event flow monitoring, bottleneck detection
+
+### Using Prometheus Query Builder
+
+**Step 1: Access Query Editor**
+- Go to http://localhost:9090
+- Top menu: Click **Graph** (or **Table** for tabular data)
+- In the query box, type your PromQL query
+
+**Step 2: Execute Query**
+- Press **Enter** or click **Execute**
+- Results display as graph or table below
+
+**Step 3: Customize Visualization**
+- **Time Range** (top right): Change from 1h to custom range
+- **Step**: How often to sample data (auto or manual)
+- **Legend**: Show/hide metric labels below graph
+- **Refresh**: Auto-update interval
+
+**Step 4: Export/Share**
+- Click **Share** (top right) to share query URL
+- Click **Export** to download as PNG or JSON
+
+### What is Grafana?
+
+**Grafana** is a visualization platform that:
+- Connects to Prometheus and queries metrics
+- Creates beautiful dashboards with panels, graphs, gauges, tables
+- Shows business metrics, operational health, and system performance
+- Pre-built dashboards tailored for different teams
+
+### Pre-Built Dashboards Overview
+
+| Dashboard | Purpose | Team | URL |
+|-----------|---------|------|-----|
+| **Microservices Dashboard** | Service health, request rates, latency | Platform | http://localhost:3000/d/microservices-dashboard |
+| **Order Fulfillment** | Order status, payment success, notifications | Operations | http://localhost:3000/d/order-fulfillment-dashboard |
+| **Financial Operations** | Payment metrics, transaction reliability | Finance | http://localhost:3000/d/financial-operations-dashboard |
+| **Customer Experience** | Conversion, cart operations, user behavior | Product/UX | http://localhost:3000/d/customer-experience-dashboard |
+| **Infrastructure Health** | System resources, HTTP status distribution, cache | DevOps/SRE | http://localhost:3000/d/infrastructure-health-dashboard |
+| **Spark Analytics** | Revenue trends, fraud detection, inventory velocity | Analytics | http://localhost:3000/d/spark-analytics-dashboard |
+
+See [DASHBOARDS_COMPLETE_SUITE.md](./DASHBOARDS_COMPLETE_SUITE.md) for detailed documentation on each dashboard.
+
+### Accessing Dashboards
+
+**Method 1: Web UI**
+1. Open Grafana: http://localhost:3000
+2. Login: `admin/admin`
+3. Click **Dashboards** in left sidebar
+4. Click the dashboard you want
+
+**Method 2: Direct Links**
+Click any dashboard directly:
+- [Microservices](http://localhost:3000/d/microservices-dashboard)
+- [Order Fulfillment](http://localhost:3000/d/order-fulfillment-dashboard)
+- [Financial Operations](http://localhost:3000/d/financial-operations-dashboard)
+- [Customer Experience](http://localhost:3000/d/customer-experience-dashboard)
+- [Infrastructure Health](http://localhost:3000/d/infrastructure-health-dashboard)
+- [Spark Analytics](http://localhost:3000/d/spark-analytics-dashboard)
+
+### Creating Custom Dashboards
+
+**1. Create New Dashboard**
+- Grafana → **+** icon (left sidebar) → **Dashboard**
+- Click **Add new panel**
+
+**2. Add Panel**
+- Click **Add new panel** or **+** button
+- In Data Source dropdown, select **Prometheus**
+- In Metrics section, start typing metric name (e.g., `payment_success_rate`)
+- Choose visualization type (Graph, Gauge, Stat, Table, etc.)
+
+**3. Configure Panel**
+- **Title**: Give panel a descriptive name
+- **Query**: Use PromQL query from "Common Queries" section above
+- **Legend**: Show/hide metric labels
+- **Thresholds**: Set color-coded alerts (green/yellow/red)
+
+**4. Save Dashboard**
+- Click **Save** (top right) → Enter dashboard name → Save
+
+### Troubleshooting Prometheus & Grafana
+
+| Issue | Solution |
+|-------|----------|
+| **Grafana won't connect to Prometheus** | Verify Prometheus running: `docker-compose logs prometheus`. Check data source URL: `http://prometheus:9090` (use container name, not localhost) |
+| **No metrics appearing in Prometheus** | Metrics endpoint down. Test: `curl http://localhost:8001/metrics`. Start services: `docker-compose up -d`. Wait 30s for scrape to complete |
+| **"No data" in Grafana dashboards** | (1) Verify data source connection (Configuration → Data Sources → Test). (2) Generate traffic: `./scripts/simulate-users.py`. (3) Wait 30+ seconds for metrics to appear |
+| **Prometheus storage full** | Old metrics data. Clean up: `docker-compose down -v`. Or reduce retention: Edit `monitoring/prometheus.yml` → `global.retention` |
+| **Can't login to Grafana** | Default: `admin/admin`. Change password: Grafana → Configuration → Users → Change Password. Reset: `docker-compose exec grafana grafana-cli admin reset-admin-password newpassword` |
+| **Grafana panels show errors** | (1) Check query syntax in panel. (2) Verify metric exists in Prometheus. (3) Look at panel error message for details. (4) Try simpler query first |
+| **Slow query response** | Reduce time range or use shorter `[time_window]` in query. Example: `rate(http_requests_total[5m])` instead of `[1h]` |
+
+### Performance Tips
+
+- **Generate Test Traffic**: Dashboards need data. Run: `./scripts/simulate-users.py`
+- **Auto-Refresh**: Set dashboard refresh to 30 seconds (default) for real-time monitoring
+- **Time Range**: Use "Last 1 hour" for fastest queries, "Last 24 hours" for trend analysis
+- **Metric Cardinality**: High label combinations slow down queries (e.g., tracking every unique user ID)
+
+### Next Steps
+
+1. ✅ **Verify data source** - Test Prometheus connection in Grafana
+2. ✅ **Generate traffic** - Run `./scripts/simulate-users.py` to populate metrics
+3. ✅ **Explore dashboards** - Visit each pre-built dashboard
+4. ✅ **Try queries** - Go to Prometheus UI, try common queries above
+5. ✅ **Create custom dashboard** - Build dashboard for your use case
 
 **PostgreSQL**:
 ```bash
@@ -1436,7 +1803,7 @@ For issues, check:
 1. Docker logs: `docker-compose logs <service>`
 2. Kafka UI: http://localhost:8080
 3. Spark Master UI: http://localhost:9080
-4. Mailhog: http://localhost:8025
+4. Mailpit: http://localhost:8025
 5. PostgreSQL queries against analytics tables
 
 ## Spark Cluster Details
@@ -1577,11 +1944,6 @@ All services run natively on ARM64 architecture without emulation:
 | Microservices | Python 3.11-slim | ARM64 native ✅ |
 
 **Total: 15/15 containers running ARM64-native** 🎉
-
-### Key Note: MailHog → Mailpit Migration
-- **Mailpit** (`axllent/mailpit:latest`) replaces MailHog for ARM64-native performance
-- Same SMTP (1025) and Web UI (8025) ports
-- Better performance on Apple Silicon with no x86 emulation
 
 ## Auto-Refill Inventory Utility
 

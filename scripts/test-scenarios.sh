@@ -42,10 +42,10 @@
 # OUTPUT:
 #   ✓ Color-coded results (green=pass, red=fail, yellow=warning)
 #   ✓ Pass rate percentage at end
-#   ✓ Links to Kafka UI, Mailhog for manual verification
+#   ✓ Links to Kafka UI, Mailpit for manual verification
 #   ✓ Detailed step-by-step assertions for debugging
 #
-# VERIFICATION WITH MAILHOG (http://localhost:8025):
+# VERIFICATION WITH MAILPIT (http://localhost:8025):
 #   Scenario 2: Should see "Payment Failed for Order" email to customer
 #   Scenario 3: Should see "Out of Stock or Insufficient Stock Alert" email to admin
 #   Scenario 4: Should see "Low Stock Alert" email to admin
@@ -94,7 +94,7 @@ PAYMENT_SERVICE="http://localhost:8003"
 INVENTORY_SERVICE="http://localhost:8004"
 NOTIFICATION_SERVICE="http://localhost:8005"
 KAFKA_UI="http://localhost:8080"
-MAILHOG_UI="http://localhost:8025"
+MAILPIT_UI="http://localhost:8025"
 
 # Statistics
 TOTAL_TESTS=0
@@ -284,7 +284,7 @@ wait_for_events() {
 #   ✗ Final order status is not PAID/RESERVATION_CONFIRMED
 #
 # HOW TO CONFIRM:
-#   1. Check Mailhog (http://localhost:8025) for order confirmation email
+#   1. Check Mailpit (http://localhost:8025) for order confirmation email
 #   2. Verify order in Order Service (GET /orders/{order_id})
 #   3. Check payment was processed (no error in Payment Service logs)
 ################################################################################
@@ -345,7 +345,7 @@ test_scenario_1_happy_path() {
     fi
     
     print_step "1.8. Verify notification would be sent"
-    print_info "Check Mailhog: $MAILHOG_UI - order confirmation email should be present"
+    print_info "Check Mailpit: $MAILPIT_UI - order confirmation email should be present"
     
     # Scenario passed - increment passed counter
     PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -373,7 +373,7 @@ test_scenario_1_happy_path() {
 #   ✗ Order reaches PAID state (payment shouldn't succeed in this scenario)
 #
 # HOW TO CONFIRM:
-#   1. Check Mailhog for payment failure notification email to customer
+#   1. Check Mailpit for payment failure notification email to customer
 #   2. Verify order status is CANCELLED: curl http://localhost:8002/orders/{order_id}
 #   3. Verify no payment was created/charged
 #   4. Check Payment Service logs show payment attempt failure
@@ -426,7 +426,7 @@ test_scenario_2_payment_failure() {
     fi
     
     print_step "2.5. Verify failure notification sent"
-    print_info "Check Mailhog: $MAILHOG_UI - payment failure email should be present"
+    print_info "Check Mailpit: $MAILPIT_UI - payment failure email should be present"
     
     # Scenario passed - order was properly cancelled due to payment failure
     PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -451,7 +451,7 @@ test_scenario_2_payment_failure() {
 #   ✗ Final order status is not CANCELLED (inventory check failed)
 #
 # HOW TO CONFIRM:
-#   1. Check Mailhog for out-of-stock notification email to customer
+#   1. Check Mailpit for out-of-stock notification email to customer
 #   2. Verify order status is CANCELLED: curl http://localhost:8002/orders/{order_id}
 #   3. Verify no payment was created: curl http://localhost:8003/payments?order_id={order_id} (should be empty)
 #   4. Check Payment Service logs show no payment attempt: 
@@ -531,7 +531,7 @@ test_scenario_3_out_of_stock() {
 #   ✗ Stock count doesn't decrease after order
 #
 # HOW TO CONFIRM:
-#   1. Check Mailhog for low-stock alert email to admin
+#   1. Check Mailpit for low-stock alert email to admin
 #   2. Verify stock decreased: curl http://localhost:8004/products/{product_id}
 #   3. Compare stock before and after: final_stock < 10
 #   4. Check Kafka topic: inventory-reserved for stock deduction events
@@ -594,7 +594,7 @@ test_scenario_4_low_stock_alert() {
     fi
     
     print_step "4.5. Verify low stock alert sent"
-    print_info "Check Mailhog: $MAILHOG_UI - admin low-stock alert email should be present"
+    print_info "Check Mailpit: $MAILPIT_UI - admin low-stock alert email should be present"
     
     PASSED_TESTS=$((PASSED_TESTS + 1))
     print_success "SCENARIO 4 PASSED: Low stock alert scenario completed"
@@ -1582,7 +1582,7 @@ print_test_summary() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${CYAN}Useful Links:${NC}"
     echo "  • Kafka UI:     $KAFKA_UI"
-    echo "  • Mailhog:      $MAILHOG_UI"
+    echo "  • Mailpit:      $MAILPIT_UI"
     echo "  • Cart Service: $CART_SERVICE"
     echo "  • Order Service: $ORDER_SERVICE"
     echo "  • Payment Service: $PAYMENT_SERVICE"

@@ -468,7 +468,7 @@ curl http://localhost:8003/payments/PAY-XYZ789ABC
 The Notification Service doesn't expose API endpoints. It runs as a consumer of Kafka events:
 
 - **Subscribes to**: `order.confirmed`, `payment.failed`, `inventory.low`
-- **Actions**: Sends emails via Mailhog
+- **Actions**: Sends emails via Mailpit
 
 You can view sent emails at: `http://localhost:8025`
 
@@ -709,14 +709,14 @@ ORDER BY units_sold DESC;
 
 ### Emails not sending
 
-1. Open Mailhog UI: `http://localhost:8025`
+1. Open Mailpit UI: `http://localhost:8025`
 2. Check Notification Service logs:
    ```bash
    docker-compose logs notification-service | tail -50
    ```
-3. Verify mailhog container is running:
+3. Verify mailpit container is running:
    ```bash
-   docker-compose ps mailhog
+   docker-compose ps mailpit
    ```
 
 ---

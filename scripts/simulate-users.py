@@ -95,7 +95,7 @@ SERVICES CALLED:
     - Order Service (8002): Create orders
     - Payment Service (8003): Process payments (80% success, 20% failure)
     - Inventory Service (8004): View products, reserve stock
-    - Notification Service (8005): Trigger emails (via Mailhog)
+    - Notification Service (8005): Trigger emails (via Mailpit)
 
 KAFKA TOPICS GENERATED:
     - cart.item_added: User adds item to cart
@@ -180,7 +180,7 @@ MONITORING:
     open http://localhost:8080  (Kafka UI)
     
     Check sent emails:
-    open http://localhost:8025  (Mailhog)
+    open http://localhost:8025  (Mailpit)
 
 REQUIREMENTS:
 

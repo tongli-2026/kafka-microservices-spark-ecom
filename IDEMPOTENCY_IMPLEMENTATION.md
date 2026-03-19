@@ -466,10 +466,10 @@ Skip (email already sent)
 
 ### Testing Notification Idempotency
 
-**Scenario 8 - Verification with Mailhog**:
+**Scenario 8 - Verification with Mailpit**:
 
 ```bash
-# After running test, check Mailhog
+# After running test, check Mailpit
 open http://localhost:8025
 
 # For 1 order with 3 items:
@@ -896,7 +896,7 @@ GROUP BY status;
 ### Scenario: Duplicate Emails
 **Cause**: Notification Service processes same event twice
 **Fix Applied**: processed_events table tracks email events
-**Verification**: Mailhog shows 1 email (not N)
+**Verification**: Mailpit shows 1 email (not N)
 
 ### Scenario: Order Status Changes Unexpectedly
 **Cause**: Duplicate payment.processed updates order to PAID twice

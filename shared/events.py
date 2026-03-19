@@ -328,7 +328,7 @@ class NotificationSendEvent(BaseEvent):
     """
     Event published when a notification should be sent.
     Triggers: Order Service or other services when notifications are needed
-    Consumers: Notification Service (sends emails via Mailhog)
+    Consumers: Notification Service (sends emails via Mailpit)
     """
 
     event_type: str = "notification.send"
