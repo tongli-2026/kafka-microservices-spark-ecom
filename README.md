@@ -67,9 +67,9 @@ kafka-microservices-spark-ecom/
 │   ├── README.md                     # Main documentation (this file)
 │   ├── API.md                        # API endpoint documentation (941 lines)
 │   ├── SPARK_ANALYTICS.md            # Spark streaming jobs & analytics (814 lines)
-│   ├── MONITORING_QUICK_REFERENCE.md # Monitoring guide (36+ metrics) (717 lines)
+│   ├── MONITORING_QUICK_REFERENCE.md # Monitoring guide + DLQ monitoring (800+ lines)
 │   ├── IDEMPOTENCY_IMPLEMENTATION.md # Saga + outbox pattern details (976 lines)
-│   ├── DASHBOARDS_COMPLETE_SUITE.md  # Grafana dashboards reference (632 lines)
+│   ├── DASHBOARDS_COMPLETE_SUITE.md  # All dashboards + DLQ dashboard panels (632+ lines)
 │   ├── TROUBLESHOOTING.md            # Problem resolution guide (393 lines)
 │   └── conftest.py                   # Pytest configuration
 │
@@ -86,6 +86,10 @@ kafka-microservices-spark-ecom/
 │   ├── validate-metrics.sh           # Validate monitoring setup
 │   ├── schedule-inventory-velocity.sh # Schedule inventory velocity job
 │   ├── kill-auto-refill.sh           # Stop auto-refill service
+│   ├── dlq-replay.py                 # DLQ recovery tool (view, replay, diagnose)
+│   ├── dlq-replay.py                 # Replay failed events from DLQ after fixing root cause
+│   ├── dlq-auto-replay.py            # Auto-replay DLQ when threshold exceeded with health checks
+│   ├── setup-dlq-monitoring.sh       # Setup script for DLQ monitoring & auto-replay
 │   └── spark/                        # Spark job management
 │       ├── cleanup-checkpoints.sh    # Clean Spark checkpoints
 │       ├── kill-spark-jobs.sh        # Kill running Spark jobs
@@ -197,9 +201,11 @@ kafka-microservices-spark-ecom/
 **scripts/** - Helper Scripts & Automation
 - User simulation and workflow testing
 - Database and Kafka cleanup utilities
+- DLQ recovery and auto-replay tools (dlq-replay.py, dlq-auto-replay.py)
+- DLQ monitoring setup script (setup-dlq-monitoring.sh)
 - Spark job management (start, stop, monitor, restart)
 - Checkpoint cleanup and status checking
-- 7 scripts in root + 7 Spark management scripts
+- 11 scripts in root + 7 Spark management scripts
 
 **shared/** - Common Code
 - Kafka client with retry logic and DLQ support
@@ -966,7 +972,7 @@ All topics are created with:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│                    KAFKA TOPICS (16 Total)                                    │
+│                    KAFKA TOPICS (15 Total)                                    │
 ├───────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │  CART EVENTS:                                                                 │
@@ -992,8 +998,10 @@ All topics are created with:
 │                                                                               │
 │  SYSTEM EVENTS:                                                               │
 │  ├─ notification.send ──────────────→ Mailpit (Email Service)                 │
-│  ├─ fraud.detected ─────────────────→ Fraud Detection (Spark)                 │
 │  └─ dlq.events ─────────────────────→ Dead Letter Queue                       │
+│                                                                               │
+│  ANALYTICS (PostgreSQL + Prometheus):                                         │
+│  └─ fraud_alerts table (Spark output) ──→ Prometheus metrics → Grafana        │
 │                                                                               │
 └───────────────────────────────────────────────────────────────────────────────┘
 
@@ -1021,145 +1029,205 @@ Legend:
 | `payment.processed` | Payment successful ✓ | Payment Service | Order Service |
 | `payment.failed` | Payment failed ✗ | Payment Service | Order Service |
 | `notification.send` | Send email notification | Notification Service | Mailpit (Email Service) |
-| `fraud.detected` | Fraud detection alert | Fraud Detection (Spark) | Monitoring |
 | `dlq.events` | Failed message processing | Any Service | Dead Letter Handler |
 
 ### Dead Letter Queue (DLQ) Pattern
 
-A **Dead Letter Queue (DLQ)** is a special Kafka topic (`dlq.events`) that stores messages that **failed to process** after retrying multiple times. It prevents:
-- ❌ Infinite retry loops that crash services
-- ❌ Data loss (failed messages are preserved)
-- ❌ System hangs waiting for problematic messages
+A **Dead Letter Queue (DLQ)** is a special Kafka topic (`dlq.events`) that stores messages that **failed to process** after 3 retry attempts. It prevents data loss by preserving failed events for manual review and recovery.
 
-#### How It Works
-
-```
-Normal Flow:
-Message → Service → Process → Success ✓
-
-Error Flow:
-Message → Service → Error → Retry 1 → Retry 2 → Retry 3 → FAIL ✗
-                                                              ↓
-                                                         DLQ Topic
-                                                              ↓
-                                                      Manual Review
-```
-
-#### Retry Logic
-
-Each service implements **exponential backoff**:
+**Retry Strategy:**
 - Attempt 1: Immediate retry
-- Attempt 2: Wait 1 second, retry
+- Attempt 2: Wait 1 second, retry  
 - Attempt 3: Wait 2 seconds, retry
-- After 3 failures → Send to `dlq.events` topic
+- After 3 failures → Sent to `dlq.events` topic
 
-#### Message Format in DLQ
-
+**DLQ Message Format:**
 ```json
 {
   "original_topic": "order.created",
   "event_id": "evt-123",
-  "error_reason": "Database connection failed",
+  "correlation_id": "corr-456",
+  "error_reason": "Can't reconnect until invalid transaction is rolled back.  Please rollback() fully before proceeding (Background on this error at: https://sqlalche.me/e/20/8s2b)",
+  "error_type": "PendingRollbackError",
   "retry_count": 3,
-  "timestamp": "2026-02-18T15:30:45Z",
-  "payload": { /* original event data */ }
+  "timestamp": 1708277445.123456,
+  "payload": { "order_id": "ORD-123", "user_id": "user_001", "items": [...] }
 }
 ```
 
-#### How to Investigate DLQ Messages
+**Key Fields:**
+- `original_topic`: Kafka topic where message came from
+- `error_reason`: Exact error that caused failure
+- `error_type`: Exception class (e.g., `OperationalError`, `PendingRollbackError`)
+- `payload`: Complete original event data
 
-**1. View DLQ messages in Kafka UI (Easiest):**
+#### Viewing DLQ Messages
+
+**Option 1: Kafka UI (Visual - Easiest)**
 ```
 http://localhost:8080 → Topics → dlq.events → View messages
 ```
 
-**2. Check service logs:**
-
-**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
-
+**Option 2: CLI (Recommended - Scriptable)**
 ```bash
-docker-compose logs order-service | grep "DLQ"
-docker-compose logs payment-service | grep "ERROR"
-```
-
-**3. Consume DLQ messages from CLI:**
-
-**Run from: Project root directory** (`/Users/tong/KafkaProjects/kafka-microservices-spark-ecom`)
-
-```bash
-# Quick check: View last 10 DLQ messages and exit automatically
-# (RECOMMENDED for quick diagnostics)
+# Quick check (exits after 5 seconds)
 docker-compose exec kafka-broker-1 \
   /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server kafka-broker-1:9092 \
   --topic dlq.events \
   --from-beginning \
-  --max-messages 10
+  --max-messages 50 \
+  --timeout-ms 5000
+
+# Output: "Processed a total of 0 messages" (system healthy) or shows failed events
 ```
 
-**What to expect:**
-- ✅ **Messages appear**: DLQ has failed events (review and fix them)
-- ❌ **Nothing appears**: No DLQ events yet (system is healthy so far)
-- Command exits automatically after 10 messages
-
-**Advanced: Continuous monitoring (waits for new messages)**
+**Option 3: Automated Replay Script (Recommended for Recovery)**
 ```bash
-# Enter monitoring mode - shows all past messages, then waits for new ones
-# (Press Ctrl+C to exit)
-docker-compose exec kafka-broker-1 \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server kafka-broker-1:9092 \
-  --topic dlq.events \
-  --from-beginning
+python scripts/dlq-replay.py --view
 ```
 
-**Note**: Use `--bootstrap-server` (singular), not `--bootstrap-servers` (plural)
+#### Recovering from DLQ Messages
 
-#### Handling DLQ Messages
+**Step 1: Identify the Root Cause**
 
-| Option | Process | Use Case |
-|--------|---------|----------|
-| **Manual Fix & Replay** | Fix issue → consume from DLQ → replay | Most common |
-| **Automated Handler** | Service monitors DLQ, alerts ops | Production systems |
-| **Manual Intervention** | Review in Kafka UI, delete or fix | One-off issues |
+Read `error_reason` and `error_type` from the DLQ message:
 
-#### Best Practices
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Connection refused: postgres:5432` | PostgreSQL down | `docker-compose up -d postgres` |
+| `Network unreachable` | Kafka down | `docker-compose up -d kafka-broker-1 kafka-broker-2 kafka-broker-3` |
+| `PendingRollbackError` | Broken DB session | `docker-compose restart <service>` (order/cart/payment) |
+| `duplicate key value` | Idempotency key collision | Check if event_id already exists |
+| `timeout` | Service slow/overloaded | Increase timeouts or scale services |
 
-1. ✅ **Monitor DLQ regularly** - Set up alerts when messages appear
-2. ✅ **Log detailed error info** - Include stack trace and original data
-3. ✅ **Don't ignore DLQ** - Messages = potential data loss
-4. ✅ **Test DLQ behavior** - Simulate failures and verify recovery
+**For detailed investigation:**
+```bash
+# Get event_id from DLQ message
+EVENT_ID="evt-123"
 
-#### In Our E-Commerce System
+# Search service logs for that event
+docker-compose logs order-service 2>&1 | grep "$EVENT_ID" -A 5 -B 5
 
-When a customer's order fails:
+# Show only ERROR lines
+docker-compose logs order-service 2>&1 | grep "ERROR" | tail -20
 ```
-Customer checks out
-  ↓
-Order Service creates → order.created published
-  ↓
-Inventory Service receives order.created
-  ↓
-Try to reserve stock from database → FAIL (Attempt 1)
-  ↓
-Retry after 1 second → FAIL (Attempt 2)
-  ↓
-Retry after 2 seconds → FAIL (Attempt 3)
-  ↓
-All retries fail → Message sent to dlq.events
-  ↓
-Payment Service never receives order.reservation_confirmed
-  ↓
-Order stuck in PENDING state (never progresses to payment) ✗
-  ↓
-Operations team sees alert, fixes database connection
-  ↓
-Replay message from DLQ
-  ↓
-Inventory reserved → order.reservation_confirmed → payment processes
-  ↓
-Order fulfills successfully ✓
+
+**Step 2: Fix the Underlying Issue**
+- Restart failed services/infrastructure
+- Fix application code if needed
+- Verify system is healthy
+
+> ⚠️ **IMPORTANT: Service Restart Method**
+> 
+> Use `docker-compose restart <service>` for quick targeted fixes (e.g., clearing broken DB transactions):
+> ```bash
+> docker-compose restart order-service
+> ```
+> 
+> Use `docker-compose up -d` only for full stack startup or after modifying docker-compose.yml:
+> ```bash
+> docker-compose up -d  # Starts/updates ALL containers
+> ```
+> 
+> **Why:** A single service restart is faster (~5-10 seconds) and won't interrupt healthy services. A full `up -d` is slower (~30-60 seconds) and may cause race conditions if services are starting simultaneously. For DLQ recovery, always use targeted `restart` after fixing the root cause, then verify with `dlq-replay.py --view`.
+
+**Step 3: Replay DLQ Events (Recommended)**
+
+```bash
+# View all DLQ events
+python scripts/dlq-replay.py --view
+
+# Replay one event
+python scripts/dlq-replay.py --replay <event-id>
+
+# Replay all events (after fixing root cause)
+python scripts/dlq-replay.py --replay-all
 ```
+
+**Full Recovery Example (PostgreSQL Outage):**
+```bash
+# 1. Stop PostgreSQL and generate traffic to create DLQ events
+docker-compose stop postgres
+./scripts/simulate-users.py --duration 30 --users 3
+
+# 2. Restart PostgreSQL
+docker-compose up -d postgres
+sleep 5
+
+# 3. Restart affected services to clear broken connections
+docker-compose restart order-service cart-service inventory-service payment-service
+
+# 4. Replay all DLQ events
+python scripts/dlq-replay.py --replay-all
+
+# 5. Verify recovery in PostgreSQL
+docker-compose exec postgres psql -U postgres -d kafka_ecom -c \
+  "SELECT COUNT(*) FROM processed_events WHERE event_type = 'order.created';"
+```
+
+#### Auto-Replay DLQ Messages (Production-Ready)
+
+**New Feature**: Automatically replay DLQ messages when threshold is exceeded + system is healthy.
+
+For complete DLQ monitoring setup and auto-replay documentation, see:
+**`MONITORING_QUICK_REFERENCE.md` → "Dead Letter Queue (DLQ) Monitoring" section**
+
+**For comprehensive testing plan**, see: **`DLQ_TESTING_PLAN.md`** (12-phase testing strategy)
+
+**For dashboard deployment**, see: **`DLQ_DASHBOARD_DEPLOYMENT.md`** (panel specifications + deployment methods)
+
+**Dashboard Status:** ✅ DLQ panels already added to JSON files:
+- Infrastructure Health Dashboard: 7 panels (including 3 DLQ panels: Message Count, Growth Rate, System Health)
+- Microservices Dashboard: 12 panels (including 2 DLQ panels: Errors by Service, Failures vs DLQ Correlation)
+
+This includes:
+- ✅ Auto-replay daemon setup (runs continuously with health checks)
+- ✅ Manual recovery procedures
+- ✅ Prometheus metrics for dashboards
+- ✅ Troubleshooting guide
+- ✅ Dashboard panels in Infrastructure Health & Microservices dashboards
+
+**Quick Start:**
+```bash
+# 1. Setup dependencies
+bash scripts/setup-dlq-monitoring.sh
+
+# 2. Start auto-replay daemon
+nohup python scripts/dlq-auto-replay.py --daemon --interval 300 --threshold 50 > logs/dlq-auto-replay.log 2>&1 &
+
+# 3. Import dashboards (automatic if using docker-compose provisioning)
+# Or import manually:
+# - Infrastructure Health: monitoring/dashboards/infrastructure-health-dashboard.json
+# - Microservices: monitoring/dashboards/microservices-dashboard.json
+
+# 4. View DLQ status in dashboards
+# - Infrastructure Health → "Dead Letter Queue Status" section (Row 3, Panels 5-7)
+# - Microservices → "DLQ Alerts" section (Row 5, Panels 11-12)
+```
+
+**Testing:**
+```bash
+# Run complete DLQ test suite (see MONITORING_QUICK_REFERENCE.md)
+# Phase 1: Setup
+bash scripts/setup-dlq-monitoring.sh
+
+# Phase 2: Baseline (verify no errors in normal operation)
+python scripts/simulate-users.py --duration 30
+python scripts/dlq-replay.py --view  # Should show 0 messages
+
+# Phase 3: Error Simulation
+docker-compose stop postgres
+python scripts/simulate-users.py --duration 60
+python scripts/dlq-replay.py --view  # Should show accumulating messages
+
+# Phase 4: Auto-Replay
+docker-compose up -d postgres
+# Wait 60s - auto-replay should trigger automatically
+python scripts/dlq-replay.py --view  # Should show 0 messages (cleared)
+```
+
+See `MONITORING_QUICK_REFERENCE.md` and `DASHBOARDS_COMPLETE_SUITE.md` for complete documentation.
 
 ## Configuration
 
@@ -1675,19 +1743,32 @@ pkill -f "org.apache.spark"
 ### Spark Jobs Directory Structure
 
 ```
-analytics/
-├── spark_session.py           # Shared session factory
-├── jobs/
-│   ├── cart_abandonment.py   # Abandoned cart detection
-│   ├── fraud_detection.py     # Fraud pattern detection
-│   ├── operational_metrics.py # System health metrics
-│   ├── inventory_velocity.py  # Product sales velocity
-│   └── revenue_streaming.py   # Real-time revenue tracking
-└── scripts/
-    └── run-spark-job.sh       # Helper to run jobs
+analytics/                      # Spark cluster & jobs
+├── spark_session.py           # Spark session factory (shared by all jobs)
+├── metrics_exporter.py        # Prometheus metrics exporter for Spark jobs
+├── Dockerfile                 # Spark cluster Docker image
+├── Dockerfile.exporter        # Metrics exporter container
+├── requirements.txt           # Python dependencies
+├── jars/                      # Spark external JARs
+│   ├── kafka-clients-3.7.0.jar
+│   ├── spark-sql-kafka-0-10_2.12-3.5.1.jar
+│   └── postgresql-42.7.1.jar
+├── jobs/                      # PySpark streaming jobs (5 total)
+│   ├── revenue_streaming.py   # 1-minute revenue aggregation
+│   ├── fraud_detection.py     # 5-minute fraud pattern detection
+│   ├── cart_abandonment.py    # 30-minute cart abandonment analysis
+│   ├── inventory_velocity.py  # 1-hour product sales velocity ranking
+│   └── operational_metrics.py # Topic-level system health metrics
+└── logs/                      # Checkpoint and log data
+    └── checkpoints/           # Spark streaming checkpoints (fault tolerance)
 ```
 
-**Important**: All jobs must be run from project root, not from `analytics/jobs/` directory.
+**Important Notes:**
+- ✅ All jobs must be run from **project root**, not from `analytics/jobs/` directory
+- ✅ Use helper script: `./scripts/spark/run-spark-job.sh <job_name>`
+- ✅ Jobs read from Kafka topics and write to PostgreSQL tables
+- ✅ Metrics exported to Prometheus (`localhost:9090`) for Grafana dashboards
+- ✅ Checkpoints enable recovery if jobs are stopped/restarted
 
 ### Spark Cluster Issues
 
@@ -1719,6 +1800,13 @@ docker-compose exec postgres pg_isready
 # Check database exists (Run from project root)
 docker-compose exec postgres psql -U postgres -c "\\l"
 ```
+
+**Cannot simulate users when PostgreSQL is stopped:**
+
+If you get "❌ Failed to fetch products (HTTP 500)" when running simulate-users.py:
+- ✅ This is EXPECTED - PostgreSQL must be running for inventory service to respond
+- ✅ To test DLQ, start the simulation FIRST, then stop PostgreSQL mid-simulation
+- ✅ See "Testing DLQ: Simulate Error Conditions" section for proper procedure
 
 ### Messages not flowing
 ```bash

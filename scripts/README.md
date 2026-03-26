@@ -21,6 +21,11 @@ scripts/
 │   ├── dashboard-sync.sh              # Sync Grafana dashboards
 │   └── schedule-inventory-velocity.sh # Schedule hourly inventory velocity job (cron utility)
 │
+├── 🚨 Dead Letter Queue (DLQ) Recovery
+│   ├── dlq-replay.py                  # View and replay failed events from DLQ
+│   ├── dlq-auto-replay.py             # Automatic DLQ recovery daemon with threshold monitoring
+│   └── setup-dlq-monitoring.sh        # Setup script for DLQ monitoring and auto-replay
+│
 ├── ⚡ Spark Job Management
 │   └── spark/
 │       ├── start-spark-jobs.sh        # Start all Spark jobs in background
@@ -104,6 +109,89 @@ bash scripts/kill-auto-refill.sh --force
 ```bash
 bash scripts/dashboard-sync.sh
 ```
+
+### Dead Letter Queue (DLQ) Recovery
+
+**View DLQ messages** (check for failed events):
+```bash
+python scripts/dlq-replay.py --view
+```
+
+Expected output when healthy:
+```
+No DLQ messages (system is healthy!)
+```
+
+Example output when there are messages:
+```
+Event ID: abc123 | Topic: order.events | Error: Connection refused
+Event ID: def456 | Topic: payment.events | Error: Timeout
+````
+```
+
+Expected output when degraded:
+```
+✓ dlq.events topic found
+- Partition 0: low=0, high=0
+- Partition 1: low=0, high=9      ← 9 messages in DLQ (events failed!)
+- Partition 2: low=0, high=0
+```
+
+**View all failed events in DLQ** (RECOMMENDED - start here):
+```bash
+python scripts/dlq-replay.py --view
+```
+
+Output shows:
+- Event ID, Original Topic, Error Type
+- Error Reason (exact error that caused failure)
+- Retry Count (should be 3)
+
+**Replay a specific event** (after fixing root cause):
+```bash
+# 1. Identify root cause from error_reason
+# 2. Fix the underlying issue (restart PostgreSQL, etc.)
+# 3. Replay the event
+python scripts/dlq-replay.py --replay <event-id>
+```
+
+**Replay ALL events in DLQ** (use after fixing root cause):
+```bash
+# Only use after confirming the underlying issue is fixed!
+python scripts/dlq-replay.py --replay-all
+```
+
+**DLQ Recovery Workflow:**
+```bash
+# 1. View what failed
+python scripts/dlq-replay.py --view
+
+# 2. Identify error (e.g., "Connection refused: postgres:5432")
+# → PostgreSQL is down
+
+# 3. Fix the root cause
+docker-compose up -d postgres
+sleep 5
+
+# 5. Restart affected services (clear broken connections)
+docker-compose restart order-service cart-service inventory-service payment-service
+
+# 6. Verify recovery
+curl http://localhost:8001/health  # Should respond with 200
+
+# 7. Replay events
+python scripts/dlq-replay.py --replay-all
+
+# 8. Verify in database
+docker-compose exec postgres psql -U postgres -d kafka_ecom -c \
+  "SELECT COUNT(*) FROM processed_events WHERE event_type = 'order.created';"
+```
+
+**Key Points:**
+- ✓ DLQ messages preserved as audit trail (idempotency prevents duplicates)
+- ✓ Safe to replay multiple times (system deduplicates automatically)
+- ✓ Always fix root cause BEFORE replaying
+- ✓ Restart services after fixing infrastructure issues
 
 ### Spark Analytics
 

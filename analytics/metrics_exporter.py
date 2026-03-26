@@ -12,11 +12,11 @@ Tables monitored:
 - operational_metrics: System health and throughput monitoring
 
 Metrics Exported (16 total):
-- Revenue: total_24h, order_count_24h, avg_order_value, revenue_per_minute
-- Fraud: alerts_total, by_type, alerts_rate_per_hour
-- Inventory: units_sold_24h, top_product_units, top_product_revenue
-- Cart: abandoned_24h, abandonment_rate, recovery_rate
-- System Health: health_pct, status_breakdown, critical_alert_count
+- Revenue (4): total_24h, order_count_24h, avg_order_value, revenue_per_minute
+- Fraud (3): alerts_total (by severity), alerts_by_type, alerts_rate_per_hour
+- Inventory (3): units_sold_24h, top_product_units (ranked), top_product_revenue (ranked)
+- Cart (3): abandoned_24h, abandonment_rate (%), recovery_rate
+- System (3): health_pct, status_breakdown (by status), critical_alert_count
 """
 
 import os

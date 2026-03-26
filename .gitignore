@@ -70,3 +70,7 @@ spark-warehouse/
 # Runtime data dumps
 data/
 !data/sample/
+
+# Resume (personal/local use)
+RESUME_PROJECT_SUMMARY.md
+

@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy DLQ metrics monitor
+COPY analytics/dlq_metrics_monitor.py .
+
+# Install dependencies (confluent-kafka for Kafka, prometheus_client for metrics)
+RUN pip install --no-cache-dir confluent-kafka prometheus-client
+
+EXPOSE 9091
+
+CMD ["python", "dlq_metrics_monitor.py"]

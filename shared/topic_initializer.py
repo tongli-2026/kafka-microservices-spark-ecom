@@ -20,8 +20,11 @@ TOPICS CREATED:
     - payment.processed
     - payment.failed
     - notification.send
-    - fraud.detected
     - dlq.events
+    
+    Note: fraud.detected is NOT a Kafka topic. Fraud alerts are written directly to
+    PostgreSQL fraud_alerts table by the Spark fraud detection job and exposed via
+    Prometheus metrics (spark_fraud_alerts_total, etc.)
 
 CONFIGURATION:
     - Default partitions: 3 (enables parallel processing)

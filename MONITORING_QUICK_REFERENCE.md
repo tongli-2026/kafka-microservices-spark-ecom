@@ -652,6 +652,152 @@ GF_SERVER_MAX_OPEN_CONNECTIONS: 100  # Limit database connections
 
 ---
 
+## 🚨 Dead Letter Queue (DLQ) Monitoring
+
+### What is DLQ?
+
+A **Dead Letter Queue** is a Kafka topic (`dlq.events`) that stores messages that failed processing after 3 retry attempts. It prevents data loss while allowing investigation and recovery.
+
+**Retry Strategy:**
+- Attempt 1: Immediate retry
+- Attempt 2: Wait 1 second, retry
+- Attempt 3: Wait 2 seconds, retry
+- After 3 failures → Sent to `dlq.events` topic
+
+### Viewing DLQ Messages
+
+**Option 1: Dashboards (Easiest)**
+- **Infrastructure Health Dashboard**: "Dead Letter Queue Status" section shows:
+  - Current DLQ message count (gauge)
+  - DLQ growth rate (trend graph)
+  - Auto-replay status
+- **Microservices Dashboard**: "DLQ Alerts" section shows:
+  - **DLQ Errors by Service (Table)** - Count of failed messages in past 1 hour per service
+    - Normal state: All services show 0 (system healthy ✓)
+    - Alert state: Any service > 0 (investigation required)
+    - Shows service name, error type, and count
+  - **Service Failures vs DLQ Correlation (Graph)** - Shows correlation between HTTP errors and DLQ messages
+    - Normal state: Both lines flat at 0 (no failures, no DLQ messages ✓)
+    - Expected pattern: When failures spike → DLQ messages increase (they're correlated)
+    - If DLQ shows 0 but you had errors → They may have been successfully retried (no replay needed)
+    - Legend shows each service with both metrics for easy identification
+
+**Option 2: Kafka UI**
+```
+http://localhost:8080 → Topics → dlq.events → View messages
+```
+
+**Option 3: CLI Script**
+```bash
+# View all DLQ messages with details
+python scripts/dlq-replay.py --view
+```
+
+### DLQ Message Format
+
+```json
+{
+  "original_topic": "order.created",
+  "event_id": "evt-123",
+  "correlation_id": "corr-456",
+  "error_reason": "PendingRollbackError: Can't reconnect...",
+  "error_type": "PendingRollbackError",
+  "retry_count": 3,
+  "timestamp": 1708277445.123456,
+  "payload": { "order_id": "ORD-123", ... }
+}
+```
+
+### Auto-Replay DLQ Messages
+
+**Automatic Recovery (Production):**
+```bash
+# Start daemon (checks every 5 minutes, threshold: 50 messages)
+nohup python scripts/dlq-auto-replay.py --daemon --interval 300 --threshold 50 > logs/dlq-auto-replay.log 2>&1 &
+
+# One-time check
+python scripts/dlq-auto-replay.py --threshold 50 --verbose
+```
+
+**How Auto-Replay Works:**
+1. Monitors DLQ message count continuously
+2. When count exceeds threshold (default: 50):
+   - Checks PostgreSQL connectivity ✓
+   - Checks Kafka cluster health ✓
+   - Checks all 5 microservices (/health endpoints) ✓
+3. If system healthy → Automatically replays all DLQ messages
+4. If any check fails → Blocks replay (prevents cascading failures)
+
+**Prometheus Metrics (Visible in Dashboards):**
+- `dlq_message_count` - Current messages in DLQ
+- `dlq_auto_replay_triggered_total` - Number of replay attempts
+- `dlq_auto_replay_success_total` - Successful replays
+- `dlq_auto_replay_failed_total` - Failed replays
+- `dlq_system_health_check_passed` - System health (0/1)
+
+### Manual Recovery from DLQ
+
+**Step 1: Identify Root Cause**
+
+Read error from DLQ message:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Connection refused: postgres:5432` | PostgreSQL down | `docker-compose up -d postgres` |
+| `Network unreachable` | Kafka down | `docker-compose up -d kafka-broker-1 kafka-broker-2 kafka-broker-3` |
+| `PendingRollbackError` | Broken DB session | `docker-compose restart <service>` |
+
+**Step 2: Fix Issue**
+```bash
+# Example: PostgreSQL recovery
+docker-compose stop postgres
+docker-compose up -d postgres
+sleep 5
+docker-compose restart order-service cart-service inventory-service
+```
+
+**Step 3: Replay Messages**
+```bash
+# Replay all DLQ messages
+python scripts/dlq-replay.py --replay-all
+
+# Or replay specific event
+python scripts/dlq-replay.py --replay <event-id>
+```
+
+### DLQ Monitoring SLA Targets
+
+| Metric | Target | Alert Threshold |
+|--------|--------|-----------------|
+| DLQ Message Count | 0-25 | > 50 (warning), > 100 (critical) |
+| DLQ Growth Rate | 0 msg/sec | > 1 msg/sec |
+| Auto-Replay Success Rate | > 95% | < 80% |
+| System Health Status | Healthy (1) | Unhealthy (0) |
+
+### DLQ Troubleshooting
+
+| Problem | Diagnosis | Solution |
+|---------|-----------|----------|
+| DLQ messages accumulating | Check logs: `docker-compose logs order-service` | Fix underlying service issue |
+| Auto-replay blocked | Check: `tail logs/dlq-auto-replay.log` | Fix health issue (postgres/kafka/service) |
+| Manual replay hangs | Test: `python scripts/dlq-replay.py --view` | Check if services are responding |
+
+### Setup DLQ Monitoring
+
+```bash
+# 1. Run setup script
+bash setup-dlq-monitoring.sh
+
+# 2. Start auto-replay daemon
+nohup python scripts/dlq-auto-replay.py --daemon --interval 300 > logs/dlq-auto-replay.log 2>&1 &
+
+# 3. Verify in dashboards
+# - Infrastructure Health → Dead Letter Queue Status
+# - Microservices → DLQ Alerts
+```
+
+---
+
 ## 🎯 Success Criteria
 
 Your monitoring stack is production-ready when:
@@ -667,6 +813,215 @@ Your monitoring stack is production-ready when:
 ✅ Query latency < 100ms  
 ✅ Retention is set to 15 days  
 ✅ Revenue, fraud, cart abandonment, and inventory metrics visible  
+
+---
+
+## 🧪 DLQ Testing Guide
+
+### Pre-Testing Setup (5 min)
+
+Verify environment before starting tests:
+
+```bash
+# 1. Check all services running
+docker-compose ps
+# Expected: All containers showing "Up (healthy)"
+
+# 2. Install DLQ dependencies
+bash scripts/setup-dlq-monitoring.sh
+
+# 3. Verify DLQ topic exists
+docker-compose exec kafka-broker-1 \
+  /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 \
+  --list | grep dlq
+
+# Expected: dlq.events topic listed
+```
+
+### Phase 2: Baseline Testing (10 min)
+
+Verify system works normally with no errors:
+
+```bash
+# Generate normal traffic
+python scripts/simulate-users.py --duration 30
+
+# Check DLQ is empty
+python scripts/dlq-replay.py --view
+# Expected: No messages output (or "0 messages" indicator)
+
+# Check dashboard
+open http://localhost:3000/d/infrastructure-health-dashboard
+# Expected: Infrastructure Health → Dead Letter Queue Status row shows:
+#   - Panel 5 (DLQ Count): 0 (green gauge)
+#   - Panel 6 (Growth Rate): 0 msg/sec
+#   - Panel 7 (Health): Healthy (green)
+```
+
+### Phase 3: Simulate Database Failure (15 min)
+
+Create errors to test DLQ accumulation:
+
+```bash
+# Terminal 1: Stop PostgreSQL (simulates DB connection failure)
+docker-compose stop postgres
+
+# Terminal 2: Generate traffic immediately
+python scripts/simulate-users.py --duration 60
+
+# Terminal 3: Watch DLQ messages accumulate
+watch -n 2 'python scripts/dlq-replay.py --view'
+# Expected: Message count increasing (2-5 msg/sec)
+# Error Type: Connection refused: postgres:5432
+```
+
+**Dashboard During Failure:**
+- Infrastructure Health → DLQ panels show:
+  - Panel 5: Gauge increases (yellow/red warning)
+  - Panel 6: Growth Rate shows spike (green → yellow → red line)
+- Microservices → DLQ Alerts show:
+  - Panel 11: order-service with high error count
+  - Panel 12: Failure spike correlated with DLQ messages
+
+### Phase 4: Auto-Replay Testing (20 min)
+
+Test automatic recovery when system becomes healthy:
+
+```bash
+# Terminal 1: Start auto-replay daemon
+python scripts/dlq-auto-replay.py --daemon --interval 60 --threshold 5 --verbose
+
+# Watch logs in real-time (Terminal 2)
+tail -f logs/dlq-auto-replay.log
+# Expected: "⚠️ THRESHOLD EXCEEDED... ❌ HEALTH CHECK FAILED: PostgreSQL unreachable"
+
+# Terminal 3: Restart PostgreSQL
+docker-compose up -d postgres
+sleep 5
+docker-compose restart order-service
+
+# Watch logs - should show auto-replay triggered
+# Expected: "✅ ALL CHECKS PASSED - Triggering auto-replay! ✅ Auto-replay completed"
+
+# Verify DLQ cleared
+python scripts/dlq-replay.py --view
+# Expected: No messages (or empty list - auto-replay succeeded)
+
+# Check dashboard
+open http://localhost:3000/d/infrastructure-health-dashboard
+# Expected: DLQ panels back to green/normal
+```
+
+### Phase 5-8: Advanced Testing (1 hour)
+
+**Kafka Failure Test:**
+```bash
+docker-compose stop kafka-broker-1
+python scripts/simulate-users.py --duration 30
+# Expected: DLQ messages accumulate (Kafka unavailable)
+
+docker-compose up -d kafka-broker-1
+sleep 10
+# Expected: Auto-replay triggers and clears DLQ
+```
+
+**Multiple Failures Test:**
+```bash
+docker-compose stop payment-service notification-service
+python scripts/simulate-users.py --duration 30
+# Expected: DLQ from multiple service failures
+
+docker-compose up -d payment-service notification-service
+# Expected: Auto-replay clears all messages
+```
+
+**Manual Replay Test:**
+```bash
+# Stop auto-replay daemon
+pkill -f dlq-auto-replay.py
+
+# Create errors again
+docker-compose stop postgres
+python scripts/simulate-users.py --duration 20
+
+# Recover and manually replay
+docker-compose up -d postgres
+sleep 5
+python scripts/dlq-replay.py --replay-all
+# Expected: DLQ clears after manual replay
+```
+
+**Selective Replay:**
+```bash
+# View messages
+python scripts/dlq-replay.py --view
+# Get event_id from output
+
+# Replay specific message
+python scripts/dlq-replay.py --replay evt-specific-id
+```
+
+### Metrics Verification
+
+Query Prometheus to verify DLQ metrics:
+
+```bash
+# Open Prometheus
+open http://localhost:9090
+
+# Create graph queries:
+```
+
+| Query | Expected |
+|-------|----------|
+| `dlq_message_count` | Shows gauge value during errors, 0 when healthy |
+| `dlq_auto_replay_triggered_total` | Counter increases after each replay |
+| `dlq_auto_replay_success_total` | Matches triggered count when all replays succeed |
+| `dlq_system_health_check_passed` | 1 when healthy, 0 when unhealthy |
+
+### Stress Testing (15 min)
+
+High volume DLQ accumulation:
+
+```bash
+# Generate many orders rapidly while postgres is down
+docker-compose stop postgres
+
+for i in {1..100}; do
+  python scripts/simulate-users.py --duration 1 &
+done
+wait
+
+# Check DLQ spike
+python scripts/dlq-replay.py --view
+# Expected: 100+ messages output
+
+# Recover and verify auto-replay handles large backlog
+docker-compose up -d postgres
+sleep 5
+
+python scripts/dlq-auto-replay.py --threshold 50 --verbose
+# Expected: All 100+ messages replayed successfully
+```
+
+### Expected Test Results Summary
+
+✅ **Phase 2 (Baseline):** 0 DLQ messages, all services healthy  
+✅ **Phase 3 (Error):** DLQ accumulates during PostgreSQL failure  
+✅ **Phase 4 (Auto-Replay):** Auto-replay triggers, DLQ clears, dashboard updates  
+✅ **Phase 5-8 (Advanced):** Multiple failures handled, manual replay works  
+✅ **Metrics:** All 5 DLQ metrics reporting correctly  
+✅ **Stress:** 100+ messages replayed without loss  
+
+### Quick Troubleshooting During Tests
+
+| Issue | Check |
+|-------|-------|
+| Auto-replay not triggering | `tail logs/dlq-auto-replay.py` - Check health check errors |
+| Dashboard showing "No Data" | Ensure Prometheus is running: `docker-compose exec prometheus curl localhost:9090` |
+| Replay hangs | Check message status: `python scripts/dlq-replay.py --view` |
+| Metrics not appearing | Check metrics endpoint: `curl http://localhost:8002/metrics \| grep dlq` |
 
 ---
 

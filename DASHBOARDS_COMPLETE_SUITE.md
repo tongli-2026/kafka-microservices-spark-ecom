@@ -11,7 +11,7 @@ The monitoring system now includes **6 comprehensive dashboards**, each tailored
 **For:** Platform/DevOps Team  
 **Focus:** Core infrastructure metrics across all services
 
-### Panels (10 total):
+### Panels (12 total):
 
 **Row 1 - Service Health Status:**
 1. Cart Service (UP/DOWN)
@@ -31,13 +31,38 @@ The monitoring system now includes **6 comprehensive dashboards**, each tailored
 9. Request Rate by Endpoint & Operations
 10. Traffic Distribution - Services & Business Operations
 
+**Row 5 - DLQ Alerts (NEW):**
+11. **DLQ Errors by Service** (Table)
+    - **What it shows:** Count of messages sent to Dead Letter Queue in the past 1 hour, grouped by service and error type
+    - **Columns:** 
+      - `Service`: Which microservice had the failure (order-service, cart-service, etc.)
+      - `Error Type`: Type of error (PendingRollbackError, OperationalError, TimeoutError, etc.)
+      - `DLQ Messages (1h)`: Number of messages in DLQ in past hour
+    - **Normal state:** All services show 0
+    - **Alert state:** Any service > 0 means events failed and need replay
+    - **Action:** Click on service name to view logs and diagnose root cause
+    
+12. **Service Failures vs DLQ Correlation** (Timeseries Graph)
+    - **What it shows:** Correlation between HTTP request failures (4xx/5xx errors) and DLQ message rates
+    - **Two Y-axes:**
+      - Left (Failures/sec): Sum of HTTP errors across all services
+      - Right (DLQ Messages/sec): Rate of messages being sent to DLQ
+    - **Normal state:** Both lines flat at 0
+    - **Expected pattern:** When failures spike → DLQ messages increase (they're correlated)
+    - **Legend clarity:** Each series shows service name and metric type (e.g., "order-service - Failures/sec", "order-service - DLQ Messages/sec")
+    - **Interpretation:**
+      - If failures spike but DLQ stays at 0 = async errors (not captured in HTTP responses)
+      - If DLQ > 0 but failures = 0 = errors in background jobs or event consumers
+      - If both spike together = expected correlation (failures → retries → DLQ after 3 failures)
+
 **Layout Design:**
-- **Hierarchical Flow:** Health Status → Business Metrics → Performance Details → Endpoint Distribution
+- **Hierarchical Flow:** Health Status → Business Metrics → Performance Details → Endpoint Distribution → DLQ Status
 - **Full-Width Inventory:** 24w width for comprehensive inventory visibility
 - **Balanced Metrics:** 2-column layout for performance and endpoint analysis
+- **DLQ Visibility:** Quick indicator of which services are experiencing issues
 - **Clear Visual Separation:** Related metrics grouped together with logical flow
 
-**Use Case:** High-level overview of system health, performance, and real-time inventory status across all microservices
+**Use Case:** High-level overview of system health, performance, real-time inventory status, and at-a-glance view of which services are experiencing failures (via DLQ activity)
 
 ---
 
@@ -154,7 +179,7 @@ The monitoring system now includes **6 comprehensive dashboards**, each tailored
 **For:** DevOps/SRE Team  
 **Focus:** System health, request outcomes, and infrastructure metrics
 
-### Panels (4 total):
+### Panels (7 total):
 
 **Row 1 - Request Health & Event Processing:**
 1. HTTP Status Code Distribution - Success (200) vs other outcomes by rate
@@ -164,22 +189,34 @@ The monitoring system now includes **6 comprehensive dashboards**, each tailored
 3. Idempotency Cache Misses Rate - Cache miss frequency (lower is better)
 4. Average HTTP Request Latency - Mean request duration across all services in ms
 
+**Row 3 - Dead Letter Queue Status (NEW):**
+5. DLQ Message Count (Gauge) - Current messages in dlq.events topic with color thresholds:
+   - Green: 0-25 messages (healthy)
+   - Yellow: 26-50 messages (warning)
+   - Red: 50+ messages (critical)
+6. DLQ Growth Rate (Timeseries) - Messages/sec sent to DLQ over time
+7. Auto-Replay Status (Stat) - Last successful auto-replay timestamp + recovery rate %
+
 **Key Metrics:**
 - ✅ HTTP status distribution: Monitor 200 vs other codes
 - ✅ Kafka throughput: Monitor event processing load
 - ✅ Cache misses: Lower is better (indicates good caching effectiveness)
 - ✅ Avg latency: Monitor for degradation (baseline: ~50-100ms)
+- ✅ DLQ message count: Target 0-25 (under threshold)
+- ✅ DLQ growth rate: Should be 0 in healthy system
+- ✅ Auto-replay: Should trigger automatically when threshold exceeded
 
 **Unique Focus:**
 - **HTTP Status Code Distribution** - Shows outcome distribution (not in other dashboards)
 - **Kafka Message Publishing** - Real-time event flow throughput by topic
 - **Idempotency Cache Misses** - Infrastructure reliability metric (not in other dashboards)
 - **Average Latency** - Complements Microservices Dashboard P95 latency with mean performance
+- **DLQ Monitoring** - NEW: At-a-glance view of failed message handling + auto-recovery
 - **Request Rate by Service** is already in Microservices Dashboard, so we use status distribution here
 - **No service status cards** - Those belong in the Microservices Dashboard
 - **Infrastructure-focused** - Only metrics that measure system health and operational efficiency
 
-**Use Case:** Monitor real-time infrastructure health, HTTP outcomes, event processing throughput, and system performance during operations
+**Use Case:** Monitor real-time infrastructure health, HTTP outcomes, event processing throughput, system performance, and DLQ message handling during operations
 
 ---
 
@@ -629,4 +666,107 @@ All 21 Spark metrics exported by the metrics exporter are now actively utilized 
 | **TOTAL** | **36** | **6 Dashboards** | **100% ✅** |
 
 **Complete monitoring coverage:** All available metrics are now visualized in dedicated dashboards!
+
+---
+
+## Dashboard Deployment
+
+### Dashboard Panel Status
+
+**Infrastructure Health Dashboard** - 7 Panels Total
+- ✅ Panels 1-4: Original infrastructure metrics
+- ✅ **Panels 5-7 (NEW):** DLQ monitoring panels
+  - Panel 5: DLQ Message Count (Gauge) - x=0, y=16, w=8, h=8
+  - Panel 6: DLQ Growth Rate (Timeseries) - x=8, y=16, w=8, h=8
+  - Panel 7: Auto-Replay System Health (Stat) - x=16, y=16, w=8, h=8
+
+**Microservices Dashboard** - 12 Panels Total
+- ✅ Panels 1-10: Original service metrics
+- ✅ **Panels 11-12 (NEW):** DLQ alert panels
+  - Panel 11: DLQ Errors by Service (Table) - x=0, y=35, w=12, h=8
+  - Panel 12: Service Failures vs DLQ Correlation (Graph) - x=12, y=35, w=12, h=8
+
+### How to Deploy Dashboards
+
+**Option 1: Automatic Import (Docker Compose)**
+```bash
+docker-compose up -d grafana prometheus
+# Dashboards auto-import from monitoring/provisioning/dashboards directory
+sleep 30
+# Verify: curl -s http://localhost:3000/api/search | jq '.[] | {title, uid}'
+```
+
+**Option 2: Manual Import via UI**
+1. Open http://localhost:3000 (admin/admin)
+2. Click `+` icon → **Import**
+3. Click **Upload dashboard JSON file**
+4. Select dashboard from `monitoring/dashboards/` directory
+5. Click **Import**
+
+**Option 3: API Import**
+```bash
+curl -X POST -u admin:admin \
+  -H "Content-Type: application/json" \
+  -d @monitoring/dashboards/infrastructure-health-dashboard.json \
+  http://localhost:3000/api/dashboards/db
+
+curl -X POST -u admin:admin \
+  -H "Content-Type: application/json" \
+  -d @monitoring/dashboards/microservices-dashboard.json \
+  http://localhost:3000/api/dashboards/db
+```
+
+### Verification
+
+After importing dashboards:
+
+```bash
+# 1. Check dashboards exist
+curl -s http://localhost:3000/api/search?query=dashboard | jq '.[] | {title, uid}'
+
+# 2. Open in browser
+open http://localhost:3000/d/infrastructure-health-dashboard
+open http://localhost:3000/d/microservices-dashboard
+
+# 3. Verify DLQ panels appear
+# - Infrastructure Health: Scroll down to see Row 3 "Dead Letter Queue Status" (Panels 5-7)
+# - Microservices: Scroll down to see Row 5 "DLQ Alerts" (Panels 11-12)
+
+# 4. Generate test traffic to populate panels
+python scripts/simulate-users.py --duration 30
+```
+
+### Troubleshooting
+
+**Panels show "No Data":**
+```bash
+# Check Prometheus is scraping metrics
+curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job, health}'
+
+# Manually query DLQ metric
+curl -s 'http://localhost:9090/api/v1/query?query=dlq_message_count'
+```
+
+**Dashboards not importing:**
+```bash
+# Validate JSON syntax
+jq empty monitoring/dashboards/infrastructure-health-dashboard.json
+jq empty monitoring/dashboards/microservices-dashboard.json
+
+# Check dashboard files exist
+ls -lah monitoring/dashboards/*.json
+```
+
+**Panels missing after import:**
+```bash
+# Delete and re-import
+curl -X DELETE -u admin:admin \
+  http://localhost:3000/api/dashboards/uid/infrastructure-health-dashboard
+
+# Re-import
+curl -X POST -u admin:admin \
+  -H "Content-Type: application/json" \
+  -d @monitoring/dashboards/infrastructure-health-dashboard.json \
+  http://localhost:3000/api/dashboards/db
+```
 

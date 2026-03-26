@@ -68,3 +68,11 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+
+  # ==================== DLQ METRICS MONITOR ====================
+  - job_name: 'dlq-metrics-monitor'
+    static_configs:
+      - targets: ['dlq-metrics-monitor:9091']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s

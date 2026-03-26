@@ -718,6 +718,177 @@
       ],
       "title": "Inventory Stock Levels by Product",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "id": 25,
+      "options": {
+        "displayMode": "table",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (service, error_type) (increase(dlq_message_count[1h])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{ service }}: {{ error_type }}",
+          "refId": "A"
+        }
+      ],
+      "title": "DLQ Errors by Service (Past 1 Hour)",
+      "description": "Shows count of messages sent to Dead Letter Queue by service and error type in the past hour. Higher = more failures. Click service to investigate root cause.",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "service": "Service",
+              "error_type": "Error Type",
+              "Value": "DLQ Messages (1h)"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=~'cart-service|order-service|payment-service|inventory-service|notification-service', status=~'4..|5..'}[5m])) by (job)",
+          "legendFormat": "{{ job }} - Failures/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(dlq_message_count[5m])) by (service)",
+          "legendFormat": "{{ service }} - DLQ Messages/sec",
+          "refId": "B"
+        }
+      ],
+      "title": "Service Failures vs DLQ Correlation",
+      "description": "Left axis: HTTP request failures (4xx/5xx errors) per service | Right axis: Messages sent to Dead Letter Queue per service. When failures spike → DLQ messages increase (expected). If DLQ > 0 but failures = 0, check for async errors.",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",

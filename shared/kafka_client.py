@@ -92,6 +92,61 @@ from typing import Callable, List, Optional, Set  # Type hints
 from confluent_kafka import Consumer, Producer  # Kafka client library
 from confluent_kafka.error import KafkaError  # Kafka error types
 
+# Prometheus metrics for monitoring
+try:
+    from prometheus_client import Counter, Gauge, Histogram
+    
+    # DLQ Metrics
+    dlq_messages_sent_total = Counter(
+        'dlq_messages_sent_total',
+        'Total messages sent to DLQ',
+        ['original_topic', 'error_type']
+    )
+    
+    dlq_message_count = Gauge(
+        'dlq_message_count',
+        'Current number of messages in DLQ'
+    )
+    
+    # Producer Metrics
+    kafka_messages_published_total = Counter(
+        'kafka_messages_published_total',
+        'Total Kafka messages published',
+        ['topic', 'event_type']
+    )
+    
+    kafka_publish_errors_total = Counter(
+        'kafka_publish_errors_total',
+        'Total Kafka publish errors',
+        ['topic', 'error_type']
+    )
+    
+    # Consumer Metrics
+    kafka_messages_consumed_total = Counter(
+        'kafka_messages_consumed_total',
+        'Total Kafka messages consumed and processed',
+        ['topic', 'event_type', 'status']  # status: success, error, dlq
+    )
+    
+    kafka_message_processing_duration_seconds = Histogram(
+        'kafka_message_processing_duration_seconds',
+        'Time taken to process a Kafka message',
+        ['topic', 'event_type'],
+        buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0)
+    )
+    
+    # Retry Metrics
+    kafka_retry_attempts_total = Counter(
+        'kafka_retry_attempts_total',
+        'Total retry attempts made',
+        ['topic', 'event_type', 'attempt_number']
+    )
+    
+    has_prometheus = True
+except ImportError:
+    has_prometheus = False
+    logger_msg = "⚠️  Prometheus client not installed. Metrics collection disabled."
+
 # Import event schemas for serialization
 try:
     from shared.events import EVENT_TYPE_MAP, BaseEvent
@@ -99,6 +154,10 @@ except ImportError:
     from events import EVENT_TYPE_MAP, BaseEvent
 
 logger = logging.getLogger(__name__)
+
+# Log Prometheus status at module load time
+if not has_prometheus:
+    logger.warning(logger_msg)
 
 
 class BaseKafkaProducer:
@@ -162,6 +221,11 @@ class BaseKafkaProducer:
             )
             # Flush to ensure message is sent before method returns (can be optimized for batch sending)
             self.producer.flush()
+            
+            # Record metrics
+            if has_prometheus:
+                kafka_messages_published_total.labels(topic=topic, event_type=event_type).inc()
+            
             logger.info(
                 f"Published event to {topic}",
                 extra={
@@ -171,6 +235,13 @@ class BaseKafkaProducer:
                 },
             )
         except Exception as e:
+            # Record error metric
+            if has_prometheus:
+                kafka_publish_errors_total.labels(
+                    topic=topic, 
+                    error_type=type(e).__name__
+                ).inc()
+            
             logger.error(f"Error publishing event to {topic}: {e}")
             raise
 
@@ -268,7 +339,7 @@ class BaseKafkaConsumer:
                             )
                             time.sleep(wait_time)
                         else:
-                            # All retries exhausted, send to DLQ
+                            # All retries exhausted, send to DLQ with error metadata
                             logger.error(
                                 f"Event failed after {max_retries} retries: {e}. Sending to DLQ.",
                                 extra={
@@ -277,7 +348,21 @@ class BaseKafkaConsumer:
                                     "correlation_id": event.correlation_id,
                                 },
                             )
-                            self.producer.publish("dlq.events", event)
+                            
+                            # Create DLQ message with error metadata
+                            dlq_message = {
+                                "original_topic": msg.topic(),
+                                "original_event_type": event_type,
+                                "event_id": event_id,
+                                "correlation_id": event.correlation_id,
+                                "error_reason": str(e),
+                                "error_type": type(e).__name__,
+                                "retry_count": max_retries,
+                                "payload": event_data,  # Original event data
+                                "timestamp": time.time()
+                            }
+                            
+                            self.producer.publish("dlq.events", dlq_message)
                             self.processed_events.add(event_id)
 
             except json.JSONDecodeError as e:

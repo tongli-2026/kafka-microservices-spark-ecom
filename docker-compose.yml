@@ -464,6 +464,32 @@ services:
       retries: 3
       start_period: 20s
 
+  dlq-metrics-monitor:
+    build:
+      context: .
+      dockerfile: analytics/Dockerfile.dlq-monitor
+    container_name: dlq-metrics-monitor
+    ports:
+      - "9098:9091"
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
+      - METRICS_PORT=9091
+      - UPDATE_INTERVAL=30
+      - TZ=America/Los_Angeles
+    networks:
+      - kafka-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 networks:
   kafka-network:
     driver: bridge

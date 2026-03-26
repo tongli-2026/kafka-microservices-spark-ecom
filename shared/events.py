@@ -30,11 +30,12 @@ EVENT CATEGORIES:
     5. Notification Events: Email/alert triggers
        - notification.send
     
-    6. Fraud Events: Fraud detection
-       - fraud.detected
-    
-    7. System Events: Dead Letter Queue
+    6. System Events: Dead Letter Queue
        - dlq.events (failed message processing)
+    
+    Note: Fraud Detection (fraud.detected) is NOT a Kafka topic. Fraud alerts are
+    written directly to PostgreSQL fraud_alerts table by the Spark job and exposed
+    via Prometheus metrics (spark_fraud_alerts_total, etc.)
 
 COMMON FIELDS (BaseEvent):
     - event_id: Unique identifier (UUID)
@@ -309,8 +310,10 @@ class PaymentFailedEvent(BaseEvent):
 class FraudDetectedEvent(BaseEvent):
     """
     Event published when fraud is detected.
-    Triggers: Fraud Detection Service when suspicious activity is identified
-    Consumers: Order Service (flag order), Notification Service (send alert), Analytics (fraud tracking)
+    Triggers: Fraud Detection (Spark) when suspicious activity is identified
+    Consumers: Monitoring (dashboards, alerts), Analytics (fraud tracking)
+    Note: Fraud alerts are written directly to PostgreSQL fraud_alerts table
+    and exposed via Prometheus metrics (spark_fraud_alerts_total, etc.)
     """
 
     event_type: str = "fraud.detected"
@@ -375,7 +378,6 @@ EVENT_TYPE_MAP = {
     "payment.processed": PaymentProcessedEvent,
     "payment.failed": PaymentFailedEvent,
     "notification.send": NotificationSendEvent,
-    "fraud.detected": FraudDetectedEvent,
     "dlq.events": DLQEvent,
 }
 
@@ -394,6 +396,5 @@ ALL_TOPICS = [
     "payment.processed",
     "payment.failed",
     "notification.send",
-    "fraud.detected",
     "dlq.events",
 ]

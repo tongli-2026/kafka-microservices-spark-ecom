@@ -40,8 +40,8 @@ KAFKA TOPICS CONSUMED:
     - notification.send: Email notifications sent to users/admins after email delivery
     
     EXCLUDED TOPICS:
-    - fraud.detected: Output from another Spark job, not raw service events
     - dlq.* topics: Dead letter queue, not healthy events
+    - Analytics outputs (e.g., fraud_alerts): Output from Spark jobs or PostgreSQL, not raw service events
 
 OUTPUT:
     PostgreSQL table: operational_metrics
