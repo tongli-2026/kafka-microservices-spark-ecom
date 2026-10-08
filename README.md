@@ -1277,7 +1277,7 @@ FULFILLMENT_DELAY_SECONDS=5        # Delay before marking order fulfilled (simul
 ### Docker Container Architecture
 
 ![Docker Containers Overview](./images/docker_containers.png)
-*Docker Containers - All 21 containers running in the system architecture*
+*Docker Containers - All 20 containers running in the system architecture*
 
 ### Running Single Service
 
@@ -1852,7 +1852,7 @@ Automatic order fulfillment as integrated background thread:
 - Simulates realistic shipping delays for testing
 
 ### Saga Orchestration with Outbox Pattern & Idempotency
-Order Service implements Saga Choreography with:
+Order Service acts as the saga orchestrator using Kafka-based asynchronous messaging:
 - **Outbox Pattern**: Order + OutboxEvent created in atomic transaction, background thread publishes every 2 seconds
 - **Guaranteed Delivery**: Even if service crashes before Kafka publish, OutboxPublisher restarts and republishes
 - **Idempotency Tracking**: processed_events table prevents duplicate processing with UNIQUE(event_id) constraint

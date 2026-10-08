@@ -2,14 +2,16 @@
 saga_handler.py - Saga Orchestration for Order Processing
 
 PURPOSE:
-    Implements the Saga Choreography pattern for distributed order transactions.
-    Coordinates events across multiple microservices to ensure data consistency
-    without requiring a centralized transaction manager.
+    Implements event-driven Saga Orchestration for distributed order transactions.
+    The Order Service acts as the workflow coordinator, using Kafka events to
+    advance the saga and trigger compensating actions without a distributed
+    ACID transaction manager.
 
 SAGA PATTERN OVERVIEW:
-    The Saga pattern breaks down a distributed transaction into a sequence of 
-    compensating transactions. Each service publishes an event after completing 
-    its business logic, triggering the next service in the workflow.
+    The Saga pattern breaks down a distributed transaction into a sequence of
+    local transactions with compensating actions. Participant services publish
+    result events after completing their work; the Order Service consumes those
+    results, updates saga state, and publishes the event that triggers the next step.
 
 PRODUCTION-STYLE ORDER FLOW (Inventory-First):
     ┌─────────────────────────────────────────────────────────────────┐

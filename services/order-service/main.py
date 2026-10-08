@@ -74,11 +74,11 @@ DATABASE:
       Columns: id (UUID PK), event_id (unique indexed), event_type, processed_at
       Purpose: Prevents duplicate processing of the same event (saga handlers are idempotent)
 
-PATTERN: Outbox Pattern + Saga Choreography
+PATTERN: Transactional Outbox + Event-Driven Saga Orchestration
     - Events stored in database BEFORE publishing to Kafka
     - OutboxPublisher background thread polls every 2 seconds
     - Guarantees event publishing even if service crashes
-    - Supports compensation logic for transaction rollback
+    - Order Service coordinates state transitions and compensation actions
 
 USAGE:
     Runs on port 8002 in Docker container
