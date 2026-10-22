@@ -513,11 +513,13 @@ class OutboxPublisher:
                         self.db.commit()
                         logger.info(f"Successfully published outbox event {event.event_type} for order {event.order_id}")
                     except Exception as e:
+                        self.db.rollback()
                         logger.error(f"Error publishing outbox event: {e}", exc_info=True)
 
                 time.sleep(self.poll_interval)
                 
             except Exception as e:
+                self.db.rollback()
                 logger.error(f"Error in outbox publisher: {e}", exc_info=True)
                 time.sleep(self.poll_interval)
 

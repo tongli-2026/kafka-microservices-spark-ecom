@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -55,3 +55,22 @@ class InventoryOrder(Base):
     failed_product_id = Column(String(255), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class InventoryOutboxEvent(Base):
+    """One durable Kafka result for one inventory order."""
+
+    __tablename__ = "inventory_outbox_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    order_id = Column(String(255), unique=True, nullable=False, index=True)
+    event_id = Column(String(36), unique=True, nullable=False)
+    event_type = Column(String(100), nullable=False)
+    event_data = Column(Text, nullable=False)
+    published = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    published_at = Column(DateTime, nullable=True)
+    claim_token = Column(String(36), nullable=True)
+    claimed_until = Column(DateTime, nullable=True)
+    attempts = Column(Integer, default=0, nullable=False)
+    last_error = Column(Text, nullable=True)

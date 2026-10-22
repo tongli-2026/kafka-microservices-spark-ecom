@@ -232,6 +232,29 @@ def fulfillment_job_worker(producer: BaseKafkaProducer, poll_interval_seconds: i
         time.sleep(poll_interval_seconds)
 
 
+def handle_order_event(event, session_factory=SessionLocal):
+    """Give each Kafka attempt its own session, including retries after errors."""
+    from saga_handler import SagaHandler
+
+    db_session = session_factory()
+    try:
+        saga = SagaHandler(db_session)
+        handlers = {
+            "cart.checkout_initiated": saga.handle_cart_checkout_initiated,
+            "inventory.reserved": saga.handle_inventory_reserved,
+            "inventory.depleted": saga.handle_inventory_depleted,
+            "payment.processed": saga.handle_payment_processed,
+            "payment.failed": saga.handle_payment_failed,
+            "order.fulfilled": saga.handle_order_fulfilled,
+        }
+        handlers[event.event_type](event)
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle."""
@@ -273,7 +296,6 @@ async def lifespan(app: FastAPI):
     # Start consumer thread for order events
     def order_event_consumer():
         """Consume order-related Kafka events."""
-        from saga_handler import SagaHandler
 
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -288,27 +310,8 @@ async def lifespan(app: FastAPI):
             ],
         )
 
-        db_session = SessionLocal()
-
-        def handle_event(event):
-            """Handle incoming event based on type."""
-            saga = SagaHandler(db_session)
-
-            if event.event_type == "cart.checkout_initiated":
-                saga.handle_cart_checkout_initiated(event)
-            elif event.event_type == "inventory.reserved":
-                saga.handle_inventory_reserved(event)
-            elif event.event_type == "inventory.depleted":
-                saga.handle_inventory_depleted(event)
-            elif event.event_type == "payment.processed":
-                saga.handle_payment_processed(event)
-            elif event.event_type == "payment.failed":
-                saga.handle_payment_failed(event)
-            elif event.event_type == "order.fulfilled":
-                saga.handle_order_fulfilled(event)
-
         try:
-            consumer.consume(handle_event)
+            consumer.consume(handle_order_event)
         except Exception as e:
             logger.error(f"Error in order consumer: {e}")
 

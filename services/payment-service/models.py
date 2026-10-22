@@ -24,3 +24,13 @@ class Payment(Base):
     reason = Column(String(255), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PaymentResult(Base):
+    """Result identity for new payments, committed with the payment row."""
+
+    __tablename__ = "payment_results"
+
+    order_id = Column(String(255), primary_key=True)
+    event_id = Column(String(36), nullable=False)
+    correlation_id = Column(String(255), nullable=False)

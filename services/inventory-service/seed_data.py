@@ -38,10 +38,11 @@ def seed_products(db: Session) -> None:
     """Seed database with sample products."""
     logger.info("Seeding products...")
     repo = InventoryRepository(db)
+    created = 0
 
     for name, description, price in SAMPLE_PRODUCTS:
         # Check if product already exists
-        existing = repo.get_product(name)
+        existing = db.query(Product.id).filter(Product.name == name).first()
         if existing:
             logger.info(f"Product {name} already exists, skipping")
             continue
@@ -51,6 +52,7 @@ def seed_products(db: Session) -> None:
         # This allows us to test scenarios with both low and high stock levels, which is important for validating our inventory management logic and ensuring that our system can handle different stock situations effectively.
         stock = random.randint(10, 100)
         repo.create_product(name, description, price, stock)
+        created += 1
 
     db.commit()
-    logger.info(f"Seeded {len(SAMPLE_PRODUCTS)} products")
+    logger.info("Seeded %s new products", created)

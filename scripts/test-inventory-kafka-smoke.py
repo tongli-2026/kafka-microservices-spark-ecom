@@ -81,6 +81,11 @@ def main():
                 (order_id,),
             )
             inventory_order = cursor.fetchone()
+            cursor.execute(
+                "SELECT event_id, event_type, published FROM inventory_outbox_events WHERE order_id = %s",
+                (order_id,),
+            )
+            outbox = cursor.fetchone()
             cursor.execute("SELECT count(*) FROM payments WHERE order_id = %s", (order_id,))
             payments = cursor.fetchone()[0]
             cursor.execute(
@@ -94,6 +99,7 @@ def main():
     assert inventory_order is not None, "Missing durable inventory order state"
     assert inventory_order[0] == "DEPLETED" and inventory_order[1] == missing_id
     assert inventory_order[2], "Missing stable result event ID"
+    assert outbox == (inventory_order[2], "inventory.depleted", True), f"Outbox not delivered: {outbox}"
     assert payments == 0 and payment_requests == 0, "Payment was requested for a depleted order"
     print(json.dumps({
         "order_id": order_id,
@@ -104,6 +110,7 @@ def main():
         "reservations": reservations,
         "payments": payments,
         "payment_requests": payment_requests,
+        "outbox_published": outbox[2],
     }, indent=2))
 
 

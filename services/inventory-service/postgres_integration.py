@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from models import Base
 import test_inventory_transactions as inventory_tests
+from outbox import InventoryOutboxPublisher
 
 
 class PostgresInventoryTransactionsTest(inventory_tests.InventoryTransactionsTest):
@@ -37,6 +38,7 @@ class PostgresInventoryTransactionsTest(inventory_tests.InventoryTransactionsTes
         )
         self.sessions = []
         self.producer = inventory_tests.RecordingProducer(self.SessionLocal)
+        self.publisher = InventoryOutboxPublisher(self.SessionLocal, self.producer, poll_interval=0)
 
     def tearDown(self):
         self.engine.dispose()

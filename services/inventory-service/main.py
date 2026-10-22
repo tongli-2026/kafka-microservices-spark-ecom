@@ -10,10 +10,10 @@ INVENTORY WORKFLOW (Production-Style: Check Inventory FIRST):
     1. Listen for order.created events from Order Service
     2. Attempt to reserve stock for each ordered item (optimistic locking)
     3. If successful:
-       - Publish inventory.reserved event → Order proceeds to payment
+       - Commit inventory.reserved to the outbox → publisher delivers it to Order
        - Check if stock is now low, publish inventory.low alert to admins
     4. If reservation fails (insufficient stock):
-       - Publish inventory.depleted event → Order Service cancels order
+       - Commit inventory.depleted to the outbox → Order Service cancels order
        - Customer NOT charged (key advantage: no refunds needed)
     5. If order is cancelled:
        - Check cancellation_source field to determine action:
@@ -138,7 +138,6 @@ import sys
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
@@ -152,7 +151,6 @@ from shared.metrics import (
     add_metrics_middleware,
     track_inventory_reservation,
     update_stock_level,
-    track_kafka_message,
 )
 
 # Import local schemas for input/output validation
@@ -202,20 +200,23 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Global instances
 producer: BaseKafkaProducer = None
+outbox_publisher = None
 
 
 def init_db():
     """Initialize database tables."""
     from models import Base
+    from outbox import backfill_result_outbox
     from repository import backfill_legacy_orders
 
     logger.info("Initializing database...")
-    # create_all creates the new inventory_orders table on existing databases;
-    # it does not alter the pre-existing products or stock_reservations tables.
+    # create_all creates missing tables; it does not modify existing ones.
     Base.metadata.create_all(bind=engine)
     with SessionLocal.begin() as db:
         backfilled = backfill_legacy_orders(db)
+        queued = backfill_result_outbox(db)
     logger.info(f"Backfilled {backfilled} active legacy inventory orders")
+    logger.info("Queued %s existing inventory results for outbox delivery", queued)
     logger.info("Database initialized")
 
 
@@ -229,30 +230,10 @@ def _items_key(items):
     return sorted((item["product_id"], item["quantity"]) for item in items)
 
 
-def _recorded_result(order):
-    """Recreate the committed result with its original event ID for replay."""
-    if not order.result_event_id:  # Legacy backfill has no recoverable event ID.
-        return None
-    if order.status == "RESERVED":
-        return "inventory.reserved", InventoryReservedEvent(
-            event_id=order.result_event_id,
-            order_id=order.order_id,
-            items=json.loads(order.items_json),
-            correlation_id=order.result_correlation_id,
-        )
-    if order.status == "DEPLETED":
-        return "inventory.depleted", InventoryDepletedEvent(
-            event_id=order.result_event_id,
-            order_id=order.order_id,
-            product_id=order.failed_product_id,
-            correlation_id=order.result_correlation_id,
-        )
-    return None
-
-
 def handle_inventory_event(event, session_factory=None, event_producer=None):
     """Process one order event with a fresh, always-closed database session."""
     from models import StockReservation
+    from outbox import queue_result
     from repository import InventoryRepository
 
     db = (session_factory or SessionLocal)()
@@ -277,12 +258,7 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
                     order.items_json = items_json
                 if order.items_json and _items_key(json.loads(order.items_json)) != _items_key(event.items):
                     raise ValueError(f"Conflicting items for order {event.order_id}")
-                result = _recorded_result(order)
                 db.commit()
-                if result:
-                    topic, result_event = result
-                    event_producer.publish(topic, result_event)
-                    track_kafka_message("inventory-service", topic, published=True, success=True)
                 return
 
             reserved_items = []
@@ -318,9 +294,8 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
                 order.failed_product_id = failure.product_id
                 order.result_event_id = depleted_event.event_id
                 order.result_correlation_id = event.correlation_id
+                queue_result(db, event.order_id, "inventory.depleted", depleted_event)
                 db.commit()
-                event_producer.publish("inventory.depleted", depleted_event)
-                track_kafka_message("inventory-service", "inventory.depleted", published=True, success=True)
                 track_inventory_reservation("inventory-service", failure.product_id, "failed")
                 logger.info(f"Order {event.order_id} cancelled: insufficient stock for product {failure.product_id}")
                 return
@@ -333,10 +308,8 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
             order.status = "RESERVED"
             order.result_event_id = reserved_event.event_id
             order.result_correlation_id = event.correlation_id
-            # A failed commit must never produce inventory.reserved.
+            queue_result(db, event.order_id, "inventory.reserved", reserved_event)
             db.commit()
-            event_producer.publish("inventory.reserved", reserved_event)
-            track_kafka_message("inventory-service", "inventory.reserved", published=True, success=True)
             logger.info(f"All {len(reserved_items)} items reserved for order {event.order_id}")
 
             for item in reserved_items:
@@ -350,8 +323,12 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
                     threshold=product_info["threshold"],
                     correlation_id=event.correlation_id,
                 )
-                event_producer.publish("inventory.low", low_event)
-                logger.info(f"Product {product_info['product_id']} stock is low ({product_info['current_stock']} units remaining)")
+                try:
+                    event_producer.publish("inventory.low", low_event)
+                except Exception:
+                    logger.exception("Best-effort low-stock alert failed for %s", product_info["product_id"])
+                else:
+                    logger.info(f"Product {product_info['product_id']} stock is low ({product_info['current_stock']} units remaining)")
 
         elif event.event_type == "order.cancelled":
             cancellation_source = getattr(event, "cancellation_source", None)
@@ -383,7 +360,7 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle."""
-    global producer
+    global producer, outbox_publisher
 
     logger.info("Starting Inventory Service...")
 
@@ -421,6 +398,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize Kafka producer: {e}")
         raise
 
+    from outbox import InventoryOutboxPublisher
+
+    outbox_publisher = InventoryOutboxPublisher(SessionLocal, producer)
+    outbox_publisher.start()
+    logger.info("Inventory outbox publisher started")
+
     # Start consumer thread for inventory events
     def inventory_consumer():
         """Consume order and inventory events."""
@@ -445,6 +428,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down Inventory Service...")
+    if outbox_publisher:
+        outbox_publisher.stop()
     if producer:
         producer.flush()
 

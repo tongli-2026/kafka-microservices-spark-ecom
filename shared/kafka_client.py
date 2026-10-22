@@ -30,7 +30,7 @@ CONSUMER FEATURES:
     - Topic subscription with regex patterns
     - Event type deserialization
     - Callback-based message processing
-    - Configurable auto-commit
+    - Synchronous offset commit after handling or confirmed DLQ delivery
     - Consumer group coordination
     - Graceful shutdown handling
 
@@ -68,7 +68,7 @@ DEAD LETTER QUEUE (DLQ) HANDLING:
            - Event is published to "dlq.events" topic
            - Original event data is preserved
            - Failure reason is logged for investigation
-           - Event is marked as processed (prevents reprocessing)
+           - Source offset is committed only after DLQ delivery is confirmed
     
     DLQ Event Contents:
         - original_topic: Topic where message originally came from
@@ -160,6 +160,10 @@ if not has_prometheus:
     logger.warning(logger_msg)
 
 
+class KafkaDeliveryError(RuntimeError):
+    """The broker did not confirm delivery of a produced message."""
+
+
 class BaseKafkaProducer:
     """
     Base Kafka producer with JSON serialization and delivery callbacks.
@@ -200,7 +204,7 @@ class BaseKafkaProducer:
             )
 
     def publish(self, topic: str, event: BaseEvent) -> None:
-        """Publish event to Kafka topic."""
+        """Publish and return only after Kafka confirms this message."""
         try:
             # Handle both BaseEvent objects and dicts for flexibility
             if isinstance(event, dict):
@@ -214,13 +218,32 @@ class BaseKafkaProducer:
                 event_id = event.event_id
                 correlation_id = event.correlation_id
                 
-            self.producer.produce(
-                topic=topic,
-                value=message.encode("utf-8"),
-                callback=self._delivery_report,
-            )
-            # Flush to ensure message is sent before method returns (can be optimized for batch sending)
-            self.producer.flush()
+            delivery_errors = []
+            delivered = []
+
+            def delivery_report(err, msg):
+                self._delivery_report(err, msg)
+                if err is not None:
+                    delivery_errors.append(err)
+                else:
+                    delivered.append(msg)
+
+            try:
+                self.producer.produce(
+                    topic=topic,
+                    value=message.encode("utf-8"),
+                    callback=delivery_report,
+                )
+                remaining = self.producer.flush(timeout=30)
+            except Exception as error:
+                raise KafkaDeliveryError(f"Failed to deliver to {topic}: {error}") from error
+            # flush() can report another thread's pending message. This
+            # message is successful only when its own callback confirms it.
+            if delivery_errors or not delivered:
+                raise KafkaDeliveryError(
+                    f"Kafka did not confirm delivery to {topic}: "
+                    f"pending={remaining}, errors={delivery_errors}"
+                )
             
             # Record metrics
             if has_prometheus:
@@ -264,7 +287,8 @@ class BaseKafkaConsumer:
             "bootstrap.servers": bootstrap_servers,
             "group.id": group_id,
             "auto.offset.reset": "earliest",
-            "enable.auto.commit": True,
+            "enable.auto.commit": False,
+            "enable.auto.offset.store": False,
             "session.timeout.ms": 30000,
         }
         self.consumer = Consumer(self.config)
@@ -276,99 +300,108 @@ class BaseKafkaConsumer:
         self.producer = BaseKafkaProducer(bootstrap_servers, client_id=f"{group_id}-dlq-producer")
 
     def consume(self, handler_fn: Callable[[BaseEvent], None], timeout: float = 1.0) -> None:
-        """Consume messages from subscribed topics."""
+        """Process one message at a time and commit only after a durable outcome."""
         while True:
-            # Poll for messages with specified timeout
-            msg = self.consumer.poll(timeout)
-
-            if msg is None:
-                continue
-
-            if msg.error():
-                logger.error(f"Consumer error: {msg.error()}")
-                continue
-
             try:
-                # Parse JSON to get event_type and event_id for pre-processing checks
-                event_data = json.loads(msg.value().decode("utf-8"))
-                event_type = event_data.get("event_type")
-                event_id = event_data.get("event_id")
-
-                # Check for idempotency
-                if event_id in self.processed_events:
-                    logger.info(
-                        f"Event {event_id} already processed, skipping",
-                        extra={"event_type": event_type, "correlation_id": event_data.get("correlation_id")},
-                    )
+                msg = self.consumer.poll(timeout)
+                if msg is None:
                     continue
-
-                # Deserialize to appropriate event class using Pydantic validation
-                event_class = EVENT_TYPE_MAP.get(event_type, BaseEvent)
-                # Validate and create event instance (raises ValidationError if data is invalid)
-                event = event_class.model_validate(event_data)
-
-                # Retry logic
-                max_retries = 3
-                retry_delays = [1, 2, 4]  # exponential backoff
-
-                for attempt in range(max_retries):
-                    try:
-                        # Call the handler function to process the event
-                        handler_fn(event)
-                        self.processed_events.add(event_id)
-                        logger.info(
-                            f"Event processed successfully",
-                            extra={
-                                "event_id": event_id,
-                                "event_type": event_type,
-                                "correlation_id": event.correlation_id,
-                            },
-                        )
-                        break
-                    except Exception as e:
-                        if attempt < max_retries - 1:
-                            wait_time = retry_delays[attempt]
-                            logger.warning(
-                                f"Error processing event (attempt {attempt + 1}/{max_retries}): {e}. "
-                                f"Retrying in {wait_time}s...",
-                                extra={
-                                    "event_id": event_id,
-                                    "event_type": event_type,
-                                    "correlation_id": event.correlation_id,
-                                },
-                            )
-                            time.sleep(wait_time)
-                        else:
-                            # All retries exhausted, send to DLQ with error metadata
-                            logger.error(
-                                f"Event failed after {max_retries} retries: {e}. Sending to DLQ.",
-                                extra={
-                                    "event_id": event_id,
-                                    "event_type": event_type,
-                                    "correlation_id": event.correlation_id,
-                                },
-                            )
-                            
-                            # Create DLQ message with error metadata
-                            dlq_message = {
-                                "original_topic": msg.topic(),
-                                "original_event_type": event_type,
-                                "event_id": event_id,
-                                "correlation_id": event.correlation_id,
-                                "error_reason": str(e),
-                                "error_type": type(e).__name__,
-                                "retry_count": max_retries,
-                                "payload": event_data,  # Original event data
-                                "timestamp": time.time()
-                            }
-                            
-                            self.producer.publish("dlq.events", dlq_message)
-                            self.processed_events.add(event_id)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to deserialize message: {e}")
+                if msg.error():
+                    logger.error(f"Consumer error: {msg.error()}")
+                    continue
+                self._process_message(msg, handler_fn)
             except Exception as e:
-                logger.error(f"Unexpected error in consumer: {e}")
+                # Never poll a later offset after a failed commit or DLQ send.
+                # Rejoining the group resumes from the last committed offset.
+                logger.exception("Consumer could not finish message; rejoining group")
+                try:
+                    self.consumer.close()
+                except Exception:
+                    logger.exception("Failed to close consumer after error")
+                time.sleep(1)
+                self.consumer = Consumer(self.config)
+                self.consumer.subscribe(self.topics)
+
+    def _commit_message(self, msg) -> None:
+        committed = self.consumer.commit(message=msg, asynchronous=False)
+        if not committed:
+            raise RuntimeError("Kafka returned no committed offset")
+        for partition in committed:
+            if partition.error is not None:
+                raise RuntimeError(f"Kafka offset commit failed: {partition.error}")
+
+    def _send_to_dlq(self, msg, event_data, error, retry_count: int) -> None:
+        data = event_data if isinstance(event_data, dict) else {}
+        dlq_message = {
+            "original_topic": msg.topic(),
+            "original_event_type": data.get("event_type"),
+            "event_id": data.get("event_id"),
+            "correlation_id": data.get("correlation_id"),
+            "error_reason": str(error),
+            "error_type": type(error).__name__,
+            "retry_count": retry_count,
+            "payload": event_data,
+            "timestamp": time.time(),
+        }
+        # publish() raises unless the broker confirms delivery.
+        self.producer.publish("dlq.events", dlq_message)
+
+    def _process_message(self, msg, handler_fn: Callable[[BaseEvent], None]) -> None:
+        raw_bytes = msg.value()
+        raw_value = raw_bytes.decode("utf-8", errors="replace") if raw_bytes is not None else None
+        event_data = raw_value
+        try:
+            if raw_value is None:
+                raise ValueError("Kafka event value is null")
+            event_data = json.loads(raw_value)
+            if not isinstance(event_data, dict):
+                raise ValueError("Kafka event must be a JSON object")
+            if not event_data.get("event_id"):
+                raise ValueError("Kafka event is missing event_id")
+            event_class = EVENT_TYPE_MAP.get(event_data.get("event_type"))
+            if event_class is None:
+                raise ValueError(f"Unknown Kafka event_type: {event_data.get('event_type')}")
+            event = event_class.model_validate(event_data)
+        except (ValueError, TypeError) as error:
+            logger.error(f"Invalid Kafka message: {error}")
+            self._send_to_dlq(msg, event_data, error, retry_count=0)
+            if isinstance(event_data, dict) and event_data.get("event_id"):
+                self.processed_events.add(event_data["event_id"])
+            self._commit_message(msg)
+            return
+
+        event_id = event.event_id
+        if event_id in self.processed_events:
+            self._commit_message(msg)
+            return
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                handler_fn(event)
+            except KafkaDeliveryError:
+                # The business transaction may already be committed. Keep the
+                # input uncommitted so a replay can publish its stable result.
+                if attempt == max_retries - 1:
+                    raise
+            except Exception as error:
+                if attempt == max_retries - 1:
+                    logger.error(f"Event failed after {max_retries} attempts: {error}. Sending to DLQ.")
+                    self._send_to_dlq(msg, event_data, error, retry_count=max_retries)
+                    self.processed_events.add(event_id)
+                    self._commit_message(msg)
+                    return
+            else:
+                self.processed_events.add(event_id)
+                self._commit_message(msg)
+                logger.info("Event processed successfully", extra={
+                    "event_id": event_id,
+                    "event_type": event.event_type,
+                    "correlation_id": event.correlation_id,
+                })
+                return
+            logger.warning(f"Error processing event (attempt {attempt + 1}/{max_retries}); retrying")
+            time.sleep((1, 2)[attempt])
 
     def close(self) -> None:
         """Close the consumer."""

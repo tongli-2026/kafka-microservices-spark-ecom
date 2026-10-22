@@ -97,9 +97,6 @@ from shared.metrics import (
     payment_processing_duration_seconds,
     idempotency_cache_hits_total,
     idempotency_cache_misses_total,
-    track_payment_status,
-    track_cache_hit,
-    track_kafka_message,
 )
 
 # Import local schemas for input/output validation
@@ -113,7 +110,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 from kafka_client import BaseKafkaConsumer, BaseKafkaProducer  # Kafka clients
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
-from events import PaymentProcessedEvent, PaymentFailedEvent  # Event schemas
 
 # Setup logging
 setup_logging("payment-service")
@@ -189,8 +185,7 @@ async def lifespan(app: FastAPI):
     # Start consumer thread for order.reservation_confirmed events
     def payment_consumer():
         """Consume order.reservation_confirmed events and process payments."""
-        from payment_processor import PaymentProcessor
-        from repository import PaymentRepository
+        from payment_handler import handle_payment_event
 
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -199,87 +194,12 @@ async def lifespan(app: FastAPI):
         )
 
         def handle_order_reservation_confirmed(event):
-            """Handle order.reservation_confirmed event (Production-style: process payment only after inventory is reserved)."""
+            """Commit the payment before publishing its result."""
             logger.info(
                 f"Processing payment for order {event.order_id} (inventory reserved)",
                 extra={"event_type": event.event_type, "correlation_id": event.correlation_id},
             )
-
-            db = SessionLocal()
-            repo = PaymentRepository(db)
-
-            # FIX: Check for existing payment (idempotency via unique constraint on order_id)
-            # If payment already exists for this order, skip processing
-            existing_payment = repo.get_payment_by_order(event.order_id)
-            if existing_payment:
-                logger.info(f"Payment already processed for order {event.order_id} - skipping duplicate")
-                # Track idempotency cache hit
-                track_cache_hit("idempotency", "payment-service", hit=True)
-                db.close()
-                return
-
-            # Track idempotency cache miss
-            track_cache_hit("idempotency", "payment-service", hit=False)
-
-            # Process payment
-            success, reason = PaymentProcessor.process_payment(event.total_amount)
-
-            if success:
-                # Create success payment record
-                payment = repo.create_payment(
-                    order_id=event.order_id,
-                    user_id=event.user_id,
-                    amount=event.total_amount,
-                    currency="USD",
-                    method="card",
-                    status="SUCCESS",
-                )
-
-                # Track payment success
-                track_payment_status("payment-service", "success")
-
-                # Publish payment.processed event
-                payment_event = PaymentProcessedEvent(
-                    payment_id=payment.payment_id,
-                    order_id=event.order_id,
-                    user_id=event.user_id,
-                    amount=event.total_amount,
-                    currency="USD",
-                    method="card",
-                    correlation_id=event.correlation_id,
-                )
-                producer.publish("payment.processed", payment_event)
-                # Track Kafka message publication
-                track_kafka_message("payment-service", "payment.processed", published=True, success=True)
-
-            else:
-                # Create failed payment record
-                payment = repo.create_payment(
-                    order_id=event.order_id,
-                    user_id=event.user_id,
-                    amount=event.total_amount,
-                    currency="USD",
-                    method="card",
-                    status="FAILED",
-                    reason=reason,
-                )
-
-                # Track payment failure
-                track_payment_status("payment-service", "failed")
-
-                # Publish payment.failed event
-                payment_event = PaymentFailedEvent(
-                    order_id=event.order_id,
-                    user_id=event.user_id,
-                    reason=reason,
-                    correlation_id=event.correlation_id,
-                )
-                producer.publish("payment.failed", payment_event)
-                # Track Kafka message publication
-                track_kafka_message("payment-service", "payment.failed", published=True, success=True)
-
-            db.commit()
-            db.close()
+            handle_payment_event(event, SessionLocal, producer)
 
         try:
             consumer.consume(handle_order_reservation_confirmed)

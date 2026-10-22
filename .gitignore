@@ -71,6 +71,7 @@ spark-warehouse/
 data/
 !data/sample/
 
-# Resume (personal/local use)
+# Personal preparation notes (local use)
 RESUME_PROJECT_SUMMARY.md
 RESUME_READY.md
+INTERVIEW_PREP_SDE1.md
