@@ -131,6 +131,7 @@ USAGE:
     Access: http://localhost:8004/products
 """
 
+import json
 import logging
 import os
 import sys
@@ -206,10 +207,47 @@ producer: BaseKafkaProducer = None
 def init_db():
     """Initialize database tables."""
     from models import Base
+    from repository import backfill_legacy_orders
 
     logger.info("Initializing database...")
+    # create_all creates the new inventory_orders table on existing databases;
+    # it does not alter the pre-existing products or stock_reservations tables.
     Base.metadata.create_all(bind=engine)
+    with SessionLocal.begin() as db:
+        backfilled = backfill_legacy_orders(db)
+    logger.info(f"Backfilled {backfilled} active legacy inventory orders")
     logger.info("Database initialized")
+
+
+class InsufficientStock(Exception):
+    def __init__(self, product_id: str):
+        self.product_id = product_id
+
+
+def _items_key(items):
+    """Compare business items irrespective of line ordering or Kafka event ID."""
+    return sorted((item["product_id"], item["quantity"]) for item in items)
+
+
+def _recorded_result(order):
+    """Recreate the committed result with its original event ID for replay."""
+    if not order.result_event_id:  # Legacy backfill has no recoverable event ID.
+        return None
+    if order.status == "RESERVED":
+        return "inventory.reserved", InventoryReservedEvent(
+            event_id=order.result_event_id,
+            order_id=order.order_id,
+            items=json.loads(order.items_json),
+            correlation_id=order.result_correlation_id,
+        )
+    if order.status == "DEPLETED":
+        return "inventory.depleted", InventoryDepletedEvent(
+            event_id=order.result_event_id,
+            order_id=order.order_id,
+            product_id=order.failed_product_id,
+            correlation_id=order.result_correlation_id,
+        )
+    return None
 
 
 def handle_inventory_event(event, session_factory=None, event_producer=None):
@@ -223,42 +261,78 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
     try:
         repo = InventoryRepository(db)
         if event.event_type == "order.created":
+            items_json = json.dumps(
+                [{"product_id": item["product_id"], "quantity": item["quantity"]} for item in event.items],
+                separators=(",", ":"),
+            )
+            order, claimed = repo.claim_order(event.order_id, "PROCESSING", items_json)
+            if not claimed:
+                if order.status == "PROCESSING":
+                    raise ValueError(f"Unfinished inventory processing for order {event.order_id}")
+                if order.items_json is None:
+                    if order.status != "CANCELLED":
+                        raise ValueError(f"Missing recorded items for order {event.order_id}")
+                    # A cancellation may arrive first; retain the first stale
+                    # order payload so later conflicting replays are visible.
+                    order.items_json = items_json
+                if order.items_json and _items_key(json.loads(order.items_json)) != _items_key(event.items):
+                    raise ValueError(f"Conflicting items for order {event.order_id}")
+                result = _recorded_result(order)
+                db.commit()
+                if result:
+                    topic, result_event = result
+                    event_producer.publish(topic, result_event)
+                    track_kafka_message("inventory-service", topic, published=True, success=True)
+                return
+
             reserved_items = []
             low_stock_products = []
             stock_levels = {}
 
-            for item in event.items:
-                product_id = item["product_id"]
-                quantity = item["quantity"]
-                if not repo.reserve_stock(event.order_id, product_id, quantity):
-                    # Discard every earlier update and reservation for this order.
-                    db.rollback()
-                    track_inventory_reservation("inventory-service", product_id, "failed")
-                    depleted_event = InventoryDepletedEvent(
-                        order_id=event.order_id,
-                        product_id=product_id,
-                        correlation_id=event.correlation_id,
-                    )
-                    event_producer.publish("inventory.depleted", depleted_event)
-                    track_kafka_message("inventory-service", "inventory.depleted", published=True, success=True)
-                    logger.info(f"Order {event.order_id} cancelled: insufficient stock for product {product_id}")
-                    return
+            try:
+                # Savepoint discards every item update on failure while keeping
+                # the order row so DEPLETED can be committed durably.
+                with db.begin_nested():
+                    for item in event.items:
+                        product_id = item["product_id"]
+                        quantity = item["quantity"]
+                        if not repo.reserve_stock(event.order_id, product_id, quantity):
+                            raise InsufficientStock(product_id)
 
-                reserved_items.append({"product_id": product_id, "quantity": quantity})
-                current_stock = repo.get_stock_level(product_id)
-                stock_levels[product_id] = current_stock
-                if current_stock < 10:
-                    low_stock_products.append({
-                        "product_id": product_id,
-                        "current_stock": current_stock,
-                        "threshold": 10,
-                    })
+                        reserved_items.append({"product_id": product_id, "quantity": quantity})
+                        current_stock = repo.get_stock_level(product_id)
+                        stock_levels[product_id] = current_stock
+                        if current_stock < 10:
+                            low_stock_products.append({
+                                "product_id": product_id,
+                                "current_stock": current_stock,
+                                "threshold": 10,
+                            })
+            except InsufficientStock as failure:
+                depleted_event = InventoryDepletedEvent(
+                    order_id=event.order_id,
+                    product_id=failure.product_id,
+                    correlation_id=event.correlation_id,
+                )
+                order.status = "DEPLETED"
+                order.failed_product_id = failure.product_id
+                order.result_event_id = depleted_event.event_id
+                order.result_correlation_id = event.correlation_id
+                db.commit()
+                event_producer.publish("inventory.depleted", depleted_event)
+                track_kafka_message("inventory-service", "inventory.depleted", published=True, success=True)
+                track_inventory_reservation("inventory-service", failure.product_id, "failed")
+                logger.info(f"Order {event.order_id} cancelled: insufficient stock for product {failure.product_id}")
+                return
 
             reserved_event = InventoryReservedEvent(
                 order_id=event.order_id,
                 items=reserved_items,
                 correlation_id=event.correlation_id,
             )
+            order.status = "RESERVED"
+            order.result_event_id = reserved_event.event_id
+            order.result_correlation_id = event.correlation_id
             # A failed commit must never produce inventory.reserved.
             db.commit()
             event_producer.publish("inventory.reserved", reserved_event)
@@ -282,17 +356,21 @@ def handle_inventory_event(event, session_factory=None, event_producer=None):
         elif event.event_type == "order.cancelled":
             cancellation_source = getattr(event, "cancellation_source", None)
             logger.info(f"Order {event.order_id} cancelled: cancellation_source = {cancellation_source}")
-
-            if cancellation_source == "payment_failed":
+            order, claimed = repo.claim_order(event.order_id, "CANCELLED")
+            if not claimed and order.status == "RESERVED" and cancellation_source == "payment_failed":
                 reservations = db.query(StockReservation).filter(
                     StockReservation.order_id == event.order_id
                 ).all()
+                if not reservations:
+                    raise ValueError(f"Reserved order {event.order_id} has no stock reservations")
                 for reservation in reservations:
-                    repo.release_stock(reservation.product_id, reservation.quantity)
+                    if not repo.release_stock(reservation.product_id, reservation.quantity):
+                        raise ValueError(f"Missing product {reservation.product_id} for order {event.order_id}")
                     db.delete(reservation)
+                order.status = "RELEASED"
                 logger.info(f"Released reserved stock for order {event.order_id} (payment failed)")
-            else:
-                logger.info(f"Order {event.order_id} cancelled but no stock to release (reason: {cancellation_source or 'unknown'})")
+            elif not claimed and order.status == "RESERVED":
+                raise ValueError(f"Unexpected cancellation source for reserved order {event.order_id}: {cancellation_source}")
             db.commit()
     except Exception:
         db.rollback()

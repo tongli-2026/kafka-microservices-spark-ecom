@@ -1,11 +1,14 @@
+import json
 import logging
+from collections import defaultdict
 from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models import Product, StockReservation
+from models import InventoryOrder, Product, StockReservation
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,22 @@ class InventoryRepository:
     def get_product(self, product_id: str) -> Optional[Product]:
         """Get product by ID."""
         return self.db.query(Product).filter(Product.product_id == product_id).first()
+
+    def claim_order(self, order_id: str, status: str, items_json: Optional[str] = None):
+        """Insert the unique order row, or lock the committed winner's row.
+
+        A savepoint contains the expected unique-key error without aborting the
+        outer PostgreSQL transaction. Competing inserts wait on the primary key.
+        """
+        try:
+            with self.db.begin_nested():
+                order = InventoryOrder(order_id=order_id, status=status, items_json=items_json)
+                self.db.add(order)
+                self.db.flush()
+            return order, True
+        except IntegrityError:
+            order = self.db.query(InventoryOrder).filter_by(order_id=order_id).with_for_update().one()
+            return order, False
 
     def reserve_stock(self, order_id: str, product_id: str, quantity: int) -> bool:
         """
@@ -121,3 +140,30 @@ class InventoryRepository:
         """Get current stock level for a product."""
         product = self.get_product(product_id)
         return product.stock if product else None
+
+
+def backfill_legacy_orders(db: Session) -> int:
+    """Protect active reservations created before inventory_orders existed."""
+    rows = (
+        db.query(StockReservation)
+        .outerjoin(InventoryOrder, StockReservation.order_id == InventoryOrder.order_id)
+        .filter(InventoryOrder.order_id.is_(None))
+        .all()
+    )
+    by_order = defaultdict(list)
+    for reservation in rows:
+        by_order[reservation.order_id].append({
+            "product_id": reservation.product_id,
+            "quantity": reservation.quantity,
+        })
+
+    repo = InventoryRepository(db)
+    created = 0
+    for order_id, items in by_order.items():
+        _, inserted = repo.claim_order(
+            order_id,
+            "RESERVED",
+            json.dumps(items, separators=(",", ":")),
+        )
+        created += inserted
+    return created

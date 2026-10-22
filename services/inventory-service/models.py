@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, func
+from sqlalchemy import CheckConstraint, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -34,3 +34,24 @@ class StockReservation(Base):
     product_id = Column(String(255), nullable=False, index=True)
     quantity = Column(Integer, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class InventoryOrder(Base):
+    """Durable, order-level result of inventory processing."""
+
+    __tablename__ = "inventory_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PROCESSING', 'RESERVED', 'DEPLETED', 'RELEASED', 'CANCELLED')",
+            name="ck_inventory_orders_status",
+        ),
+    )
+
+    order_id = Column(String(255), primary_key=True)
+    status = Column(String(16), nullable=False)
+    items_json = Column(Text, nullable=True)
+    result_event_id = Column(String(36), nullable=True)
+    result_correlation_id = Column(String(255), nullable=True)
+    failed_product_id = Column(String(255), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
