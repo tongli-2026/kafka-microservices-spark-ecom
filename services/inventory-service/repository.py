@@ -43,6 +43,10 @@ class InventoryRepository:
         Reserve stock for an order with optimistic locking.
         Returns True if successful, False if concurrent conflict or insufficient stock.
         """
+        if quantity is None or quantity <= 0:
+            logger.error(f"Invalid reservation quantity for product {product_id}: {quantity}")
+            return False
+
         for attempt in range(self.MAX_RETRIES):
             product = self.get_product(product_id)
 
@@ -62,11 +66,18 @@ class InventoryRepository:
                 and_(
                     Product.product_id == product_id,
                     Product.version == current_version,
+                    Product.stock >= quantity,
                 )
-            ).update({Product.stock: Product.stock - quantity, Product.version: current_version + 1})
+            ).update(
+                {Product.stock: Product.stock - quantity, Product.version: current_version + 1},
+                synchronize_session=False,
+            )
 
             if updated == 0:
                 # Concurrent conflict
+                # The identity map may still hold the version/stock read before
+                # another transaction committed. Force a fresh read on retry.
+                self.db.expire(product)
                 if attempt < self.MAX_RETRIES - 1:
                     logger.warning(f"Concurrent conflict for product {product_id}, retry {attempt + 1}/{self.MAX_RETRIES}")
                     continue
@@ -82,6 +93,7 @@ class InventoryRepository:
             )
             self.db.add(reservation)
             self.db.flush()
+            self.db.expire(product)
             logger.info(f"Reserved {quantity} units of {product_id} for order {order_id}")
             return True
 
@@ -95,9 +107,13 @@ class InventoryRepository:
             logger.error(f"Product {product_id} not found")
             return False
 
-        product.stock += quantity
-        product.version += 1
-        self.db.flush()
+        # Apply the increment in SQL so a concurrent reservation cannot be
+        # overwritten by a stock value read earlier in this session.
+        self.db.query(Product).filter(Product.product_id == product_id).update(
+            {Product.stock: Product.stock + quantity, Product.version: Product.version + 1},
+            synchronize_session=False,
+        )
+        self.db.expire(product)
         logger.info(f"Released {quantity} units of {product_id}")
         return True
 
