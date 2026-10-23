@@ -162,6 +162,8 @@ def init_db():
 
     logger.info("Initializing database...")
     Base.metadata.create_all(bind=engine)
+    from migrations import migrate_checkout_identity
+    migrate_checkout_identity(engine)
     # create_all does not add columns or indexes to an existing outbox table.
     with engine.begin() as connection:
         connection.execute(text("""

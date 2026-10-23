@@ -13,9 +13,11 @@ class Order(Base):
     """Order model."""
 
     __tablename__ = "orders"
+    __table_args__ = (Index("uq_orders_checkout_id", "checkout_id", unique=True),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     order_id = Column(String(255), unique=True, nullable=False, index=True)
+    checkout_id = Column(String(36), nullable=True)
     user_id = Column(String(255), nullable=False, index=True)
     correlation_id = Column(String(255), nullable=False, index=True)  # Saga correlation ID - links all events for this order
     status = Column(String(50), default="PENDING", nullable=False)  # PENDING, RESERVATION_CONFIRMED, PAID, FULFILLED, CANCELLED

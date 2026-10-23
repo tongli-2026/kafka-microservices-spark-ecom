@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -46,6 +46,14 @@ class CheckoutResponse(BaseModel):
 
     message: str
     cart: CartResponse
+    checkout_id: Optional[str] = None
+
+
+class CheckoutRequest(BaseModel):
+    """Optional expected snapshot; omit it (or send {}) for the existing API."""
+
+    model_config = {"extra": "forbid"}
+    items: Optional[List[CartItemRequest]] = None
 
 
 class HealthResponse(BaseModel):

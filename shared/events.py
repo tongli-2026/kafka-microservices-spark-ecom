@@ -142,6 +142,7 @@ class CartCheckoutInitiatedEvent(BaseEvent):
     user_id: str
     items: List[Dict[str, Any]]
     total_amount: float
+    checkout_id: Optional[str] = Field(default=None, min_length=1, max_length=36)
 
 
 # ============================================================================

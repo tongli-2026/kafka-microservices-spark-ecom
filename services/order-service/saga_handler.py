@@ -171,12 +171,14 @@ TESTING SCENARIOS:
        payment.failed → order.cancelled (inventory auto-released by Inventory Service) ✓
 """
 
+import hashlib
 import json
 import logging
 from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from kafka_client import RetryableProcessingError
@@ -222,6 +224,27 @@ class SagaHandler:
 
     def handle_cart_checkout_initiated(self, event) -> None:
         """Handle cart.checkout_initiated event - creates order."""
+        from models import Order
+
+        checkout_id = getattr(event, "checkout_id", None)
+        identity = f"checkout:{checkout_id}" if checkout_id else f"checkout-event:{event.event_id}"
+        if self.db.get_bind().dialect.name == "postgresql":
+            key = int.from_bytes(hashlib.sha256(identity.encode()).digest()[:8], "big", signed=True)
+            self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+        existing = (self.db.query(Order).filter_by(checkout_id=checkout_id).one_or_none()
+                    if checkout_id else None)
+        if existing is not None:
+            def items_key(items):
+                return sorted(json.dumps(item, sort_keys=True) for item in items)
+            if (existing.user_id != event.user_id or existing.total_amount != event.total_amount
+                    or items_key(existing.items) != items_key(event.items)):
+                raise ValueError(f"Conflicting checkout payload for {checkout_id}")
+            if not self.repo.is_event_processed(event.event_id):
+                self.repo.mark_event_processed(event.event_id, event.event_type)
+            self.db.commit()
+            return
+
         # Idempotency check to prevent duplicate handling
         if self.repo.is_event_processed(event.event_id):
             logger.info(f"Event {event.event_id} already processed")
@@ -236,6 +259,7 @@ class SagaHandler:
             items=items,
             total_amount=event.total_amount,
             correlation_id=event.correlation_id,  # Store correlation_id for saga tracing
+            checkout_id=checkout_id,
         )
 
         # Track order creation

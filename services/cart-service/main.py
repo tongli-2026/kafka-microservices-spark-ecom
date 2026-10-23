@@ -8,8 +8,8 @@ PURPOSE:
 RESPONSIBILITIES:
     - Add/remove items from user shopping carts
     - Calculate cart totals and item counts
-    - Initiate checkout process
-    - Publish cart events to Kafka for order processing
+    - Persist idempotent checkouts and publish them through a PostgreSQL outbox
+    - Serialize Redis mutations with committed checkout cleanup
     - Maintain cart state in Redis (in-memory storage)
 
 API ENDPOINTS:
@@ -28,6 +28,7 @@ KAFKA EVENTS PUBLISHED:
 DATA STORAGE:
     - Redis: Cart state (key: "cart:{user_id}", value: '{"product_id_1": {"quantity": X, "price": X.XX}, "prod_id_2": {"quantity": X, "price": X.XX}}')
     - TTL: Cart expires after inactivity (configurable)
+    - PostgreSQL: cart_checkouts stores checkout identity, response, event and cleanup state
 
 TESTING COMMANDS:
     1. Health Check:
@@ -87,7 +88,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import redis  # In-memory cache for cart data
-from fastapi import FastAPI, HTTPException, status  # Web framework
+from fastapi import Body, FastAPI, Header, HTTPException, status  # Web framework
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from pydantic_settings import BaseSettings  # Configuration management
 from fastapi.responses import Response  # For metrics endpoint
 
@@ -100,7 +103,7 @@ from shared.metrics import (
 )
 
 # Import local schemas for input/output validation
-from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest, MessageResponse, CheckoutResponse  # Pydantic models
+from schemas import CartItemRequest, CartResponse, HealthResponse, UpdateQuantityRequest, MessageResponse, CheckoutResponse, CheckoutRequest
 
 # Add shared library to path for common utilities
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -109,7 +112,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 from kafka_client import BaseKafkaProducer  # Kafka message publisher
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
-from events import CartCheckoutInitiatedEvent, CartItemAddedEvent, CartItemRemovedEvent  # Event schemas
+from events import CartItemAddedEvent, CartItemRemovedEvent  # Event schemas
 
 # Setup logging
 setup_logging("cart-service")
@@ -123,13 +126,26 @@ class Settings(BaseSettings):
     redis_host: str = os.getenv("REDIS_HOST", "localhost")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
     cart_service_port: int = int(os.getenv("CART_SERVICE_PORT", "8001"))
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "kafka_ecom"
 
 
 settings = Settings()
+engine = create_engine(
+    f"postgresql://{settings.postgres_user}:{settings.postgres_password}@"
+    f"{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}",
+    pool_pre_ping=True,
+)
+SessionLocal = sessionmaker(bind=engine)
 
 # Global instances
 redis_client: redis.Redis = None
 producer: BaseKafkaProducer = None
+checkout_service = None
+checkout_publisher = None
 
 
 # Creates a context manager with two phases:
@@ -138,9 +154,15 @@ producer: BaseKafkaProducer = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle."""
-    global redis_client, producer
+    global redis_client, producer, checkout_service, checkout_publisher
 
     logger.info("Starting Cart Service...")
+    from models import Base
+    from checkout import CheckoutService
+    from cart_repository import CartRepository
+    from outbox import CheckoutPublisher
+
+    Base.metadata.create_all(bind=engine)  # New table only; no existing schema is altered.
 
     # Initialize Kafka topics
     try:
@@ -156,6 +178,8 @@ async def lifespan(app: FastAPI):
             host=settings.redis_host,
             port=settings.redis_port,
             decode_responses=True,
+            socket_timeout=5,
+            socket_connect_timeout=5,
         )
         redis_client.ping()
         logger.info("Redis connected")
@@ -171,14 +195,20 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize Kafka producer: {e}")
         raise
 
+    checkout_service = CheckoutService(SessionLocal, CartRepository(redis_client))
+    checkout_publisher = CheckoutPublisher(SessionLocal, producer, checkout_service)
+    checkout_publisher.start()
+
     yield   # ← Application is now ready to handle requests
 
     # Cleanup on shutdown
     logger.info("Shutting down Cart Service...")
+    if checkout_publisher:
+        checkout_publisher.stop()
     if redis_client:
         redis_client.close()
     if producer:
-        producer.close()
+        producer.flush()
 
 
 # Create FastAPI app with lifespan context manager for startup and shutdown logic
@@ -217,17 +247,16 @@ async def metrics():
 @app.post("/cart/{user_id}/items", status_code=status.HTTP_201_CREATED, response_model=MessageResponse)
 async def add_item(user_id: str, item: CartItemRequest) -> MessageResponse:
     """Add item to cart and publish event."""
-    from cart_repository import CartRepository, CartItem
+    from cart_repository import CartItem
 
     try:
-        repo = CartRepository(redis_client)
         # Convert CartItemRequest to CartItem for repository
         cart_item = CartItem(
             product_id=item.product_id,
             quantity=item.quantity,
             price=item.price
         )
-        repo.add_item(user_id, cart_item)
+        checkout_service.cart_operation(user_id, lambda cart: cart.add_item(user_id, cart_item))
 
         # Track cart operation
         track_cart_operation("cart-service", "add_item")
@@ -254,11 +283,8 @@ async def add_item(user_id: str, item: CartItemRequest) -> MessageResponse:
 @app.delete("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK, response_model=MessageResponse)
 async def remove_item(user_id: str, product_id: str) -> MessageResponse:
     """Remove item from cart and publish event."""
-    from cart_repository import CartRepository
-
     try:
-        repo = CartRepository(redis_client)
-        removed = repo.remove_item(user_id, product_id)
+        removed = checkout_service.cart_operation(user_id, lambda cart: cart.remove_item(user_id, product_id))
 
         if removed:
             # Track cart operation
@@ -291,8 +317,6 @@ async def remove_item(user_id: str, product_id: str) -> MessageResponse:
 @app.put("/cart/{user_id}/items/{product_id}", status_code=status.HTTP_200_OK, response_model=MessageResponse)
 async def update_item_quantity(user_id: str, product_id: str, request: UpdateQuantityRequest) -> MessageResponse:
     """Update item quantity in cart. If quantity is 0, remove the item."""
-    from cart_repository import CartRepository
-
     try:
         quantity = request.quantity
         if quantity < 0:
@@ -301,8 +325,7 @@ async def update_item_quantity(user_id: str, product_id: str, request: UpdateQua
                 detail="Quantity must be >= 0"
             )
 
-        repo = CartRepository(redis_client)
-        updated = repo.update_item_quantity(user_id, product_id, quantity)
+        updated = checkout_service.cart_operation(user_id, lambda cart: cart.update_item_quantity(user_id, product_id, quantity))
 
         if not updated:
             raise HTTPException(
@@ -332,63 +355,34 @@ async def update_item_quantity(user_id: str, product_id: str, request: UpdateQua
 @app.get("/cart/{user_id}", response_model=CartResponse)
 async def get_cart(user_id: str) -> CartResponse:
     """Get user's cart."""
-    from cart_repository import CartRepository
-
     try:
-        repo = CartRepository(redis_client)
-        cart = repo.get_cart(user_id)
+        cart = checkout_service.cart_operation(user_id, lambda repo: repo.get_cart(user_id))
         return CartResponse(**cart)
     except Exception as e:
         logger.error(f"Error getting cart: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# The checkout endpoint allows clients to initiate the checkout process for a user's shopping cart.
-# It accepts a POST request with the user_id in the URL. 
-# The endpoint retrieves the cart contents from Redis and checks if the cart is empty. 
-# If the cart has items, it publishes a cart.checkout_initiated event to Kafka with the cart details and a correlation ID for tracing.
-# The cart is then cleared synchronously from Redis.
+# The durable record is the source of truth for replay and background publication.
 @app.post("/cart/{user_id}/checkout", status_code=status.HTTP_200_OK, response_model=CheckoutResponse)
-async def checkout(user_id: str) -> CheckoutResponse:
-    """Initiate checkout and clear cart."""
-    from cart_repository import CartRepository
+def checkout(
+    user_id: str,
+    request: CheckoutRequest | None = Body(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", min_length=1, max_length=255),
+) -> CheckoutResponse:
+    from checkout import CheckoutConflict, EmptyCart
 
     try:
-        repo = CartRepository(redis_client)
-        cart = repo.get_cart(user_id)
-
-        if not cart["items"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cart is empty"
-            )
-
-        # Publish cart.checkout_initiated event to Kafka
-        # This triggers Order Service to create an order and Analytics for cart abandonment tracking
-        event = CartCheckoutInitiatedEvent(
-            user_id=user_id,
-            items=cart["items"],
-            total_amount=cart["total_amount"],
-            correlation_id=str(uuid4()),
-        )
-        producer.publish("cart.checkout_initiated", event)
-        track_kafka_message("cart-service", "cart.checkout_initiated", published=True, success=True)
-        
-        # Track checkout operation
+        expected_items = None if request is None or request.items is None else [item.model_dump() for item in request.items]
+        response = checkout_service.submit(user_id, idempotency_key, expected_items)
         track_cart_operation("cart-service", "checkout")
-        
-        # Clear cart synchronously after publishing event to ensure cart is empty for next session
-        repo.clear_cart(user_id)
-        logger.info(f"Cart cleared for user {user_id} after checkout")
-
-        return CheckoutResponse(
-            message="Checkout initiated",
-            cart=CartResponse(**cart),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error during checkout: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        return CheckoutResponse(**response)
+    except CheckoutConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except EmptyCart as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        logger.exception("Checkout failed; retry with the same Idempotency-Key")
+        raise HTTPException(status_code=503, detail="Checkout temporarily unavailable; retry with the same key") from error
 
 # The main block runs the FastAPI application using Uvicorn, listening on all interfaces (0.0.0.0, allows Docker containers to connect) and the port specified in the settings (default 8001).
 # Uvicorn is an ASGI server — it's what actually runs FastAPI and handles HTTP requests.

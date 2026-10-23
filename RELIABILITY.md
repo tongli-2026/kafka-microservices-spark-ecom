@@ -2,6 +2,11 @@
 
 ## What changed
 
+- Cart checkout now has a durable business identity and Order deduplicates by
+  that identity across event IDs. See
+  [Checkout business idempotency](services/cart-service/CHECKOUT_IDEMPOTENCY.md)
+  for the API contract, cleanup protocol, rollout and verification.
+
 - Payment handlers take a PostgreSQL transaction advisory lock derived from
   `order_id` before consulting `payments` or invoking the payment processor.
   One committed payment, `PaymentResult`, and `payment_outbox_events` row share

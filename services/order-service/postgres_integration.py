@@ -21,8 +21,55 @@ from models import Base, Order, OutboxEvent
 from saga_handler import SagaHandler
 import test_saga_transitions as saga_tests
 import test_order_outbox_fulfillment as outbox_tests
+import test_checkout_identity as checkout_tests
 from fulfillment import queue_fulfillment_events
 from outbox import OutboxPublisher
+
+
+class PostgresCheckoutIdentityTest(checkout_tests.CheckoutIdentityTest):
+    def setUp(self):
+        url = os.getenv("ORDER_TEST_POSTGRES_URL")
+        if not url:
+            self.skipTest("ORDER_TEST_POSTGRES_URL is not set")
+        self.schema = f"order_checkout_test_{uuid4().hex[:12]}"
+        self.admin_engine = create_engine(url)
+        with self.admin_engine.begin() as connection:
+            connection.execute(text(f"CREATE SCHEMA {self.schema}"))
+        self.engine = create_engine(url, connect_args={"options": f"-csearch_path={self.schema}"})
+        Base.metadata.create_all(self.engine)
+        self.SessionLocal = sessionmaker(bind=self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+        with self.admin_engine.begin() as connection:
+            connection.execute(text(f"DROP SCHEMA {self.schema} CASCADE"))
+        self.admin_engine.dispose()
+
+    def test_concurrent_different_event_ids_create_one_order(self):
+        barrier = threading.Barrier(2)
+
+        def handle(event_id):
+            barrier.wait(timeout=5)
+            self.handle(self.checkout_event(event_id=event_id))
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(handle, event_id) for event_id in ("event-a", "event-b")]
+            for future in futures:
+                future.result(timeout=10)
+        self.assertEqual(self.counts(), (1, 1, 2))
+
+    def test_migration_preserves_legacy_rows_and_is_repeatable(self):
+        from migrations import migrate_checkout_identity
+
+        self.handle(self.checkout_event(checkout_id=None))
+        with self.engine.begin() as connection:
+            connection.execute(text("ALTER TABLE orders DROP COLUMN checkout_id"))
+        migrate_checkout_identity(self.engine)
+        migrate_checkout_identity(self.engine)
+        with self.SessionLocal() as db:
+            self.assertIsNone(db.query(Order).one().checkout_id)
+        self.handle(self.checkout_event(event_id="new-event"))
+        self.assertEqual(self.counts(), (2, 2, 2))
 
 
 class PostgresSagaTransitionsTest(saga_tests.SagaTransitionsTest):

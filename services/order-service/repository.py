@@ -18,11 +18,12 @@ class OrderRepository:
         """Initialize with database session."""
         self.db = db
 
-    def create_order(self, user_id: str, items: list, total_amount: float, correlation_id: str) -> Order:
+    def create_order(self, user_id: str, items: list, total_amount: float, correlation_id: str, checkout_id=None) -> Order:
         """Create a new order."""
         order_id = f"ORD-{uuid4().hex[:12].upper()}"
         order = Order(
             order_id=order_id,
+            checkout_id=checkout_id,
             user_id=user_id,
             correlation_id=correlation_id,  # Store correlation_id for saga tracing
             items=items,

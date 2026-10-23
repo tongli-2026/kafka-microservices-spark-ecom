@@ -176,12 +176,19 @@ services:
       # Therefore, we use the `service_healthy` condition to ensure that the cart-service only starts after Redis is ready to accept connections and operate correctly. 
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - kafka-network
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
       - TZ=America/Los_Angeles
 
   order-service:
