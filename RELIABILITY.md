@@ -1,5 +1,8 @@
 # Payment, notification, and Order Saga reliability
 
+The scenario-to-test mapping, exact run commands, environment needs, and latest
+observed results are in [Reliability Test Matrix](RELIABILITY_TEST_MATRIX.md).
+
 ## What changed
 
 - Cart checkout now has a durable business identity and Order deduplicates by
