@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, String, Text, func
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import declarative_base
 
@@ -29,6 +29,13 @@ class OutboxEvent(Base):
     """Outbox pattern for reliable Kafka publishing."""
 
     __tablename__ = "outbox_events"
+    __table_args__ = (
+        Index(
+            "uq_order_fulfilled_once", "order_id", unique=True,
+            postgresql_where=text("event_type = 'order.fulfilled'"),
+            sqlite_where=text("event_type = 'order.fulfilled'"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     order_id = Column(String(255), nullable=False, index=True)
@@ -37,6 +44,10 @@ class OutboxEvent(Base):
     published = Column(String(1), default="N", nullable=False)  # Y or N
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     published_at = Column(DateTime, nullable=True)
+    claim_token = Column(String(36), nullable=True)
+    claimed_until = Column(DateTime, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text, nullable=True)
 
 
 class ProcessedEvent(Base):

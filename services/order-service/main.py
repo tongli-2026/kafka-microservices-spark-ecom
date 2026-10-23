@@ -34,7 +34,7 @@ BACKGROUND JOBS:
     - Fulfillment Job: Runs as background thread
       * Polls database every 10 seconds (configurable via POLL_INTERVAL_SECONDS)
       * Finds PAID orders ready for fulfillment (older than 5 seconds, configurable via FULFILLMENT_DELAY_SECONDS)
-      * Publishes order.fulfilled events to Kafka
+      * Queues one order.fulfilled event per order in the transactional outbox
       * Generates tracking numbers for shipped orders
 
 API ENDPOINTS:
@@ -56,7 +56,7 @@ KAFKA EVENTS:
         - order.reservation_confirmed: Stock reserved, triggers payment processing
         - order.confirmed: Payment successful, order confirmed, triggers notification
         - order.cancelled: Order cancelled (payment failed or out of stock), triggers inventory release and cancellation notification
-        - order.fulfilled: Publishes when order is fulfilled (background job), triggers shipment notification
+        - order.fulfilled: Queued by the background job, triggers shipment notification
 
 DATABASE:
     - PostgreSQL table: orders
@@ -91,14 +91,12 @@ import sys
 import threading
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration
-from sqlalchemy import create_engine  # Database ORM
+from sqlalchemy import create_engine, text  # Database ORM
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker  # Database session management
 from fastapi.responses import Response  # For metrics endpoint
 
@@ -110,7 +108,6 @@ from shared.metrics import (
     track_saga_step,
     track_saga_compensation,
     track_deduplicated_event,
-    track_kafka_message,
     update_saga_gauge,
 )
 
@@ -122,7 +119,7 @@ from fastapi import HTTPException  # HTTP exception handling
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
 # Import shared Kafka and event utilities
-from kafka_client import BaseKafkaConsumer, BaseKafkaProducer  # Kafka clients
+from kafka_client import BaseKafkaConsumer, BaseKafkaProducer, RetryableProcessingError  # Kafka clients
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
 
@@ -165,70 +162,34 @@ def init_db():
 
     logger.info("Initializing database...")
     Base.metadata.create_all(bind=engine)
+    # create_all does not add columns or indexes to an existing outbox table.
+    with engine.begin() as connection:
+        connection.execute(text("""
+            ALTER TABLE outbox_events
+            ADD COLUMN IF NOT EXISTS claim_token VARCHAR(36),
+            ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS last_error TEXT
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_order_fulfilled_once
+            ON outbox_events (order_id) WHERE event_type = 'order.fulfilled'
+        """))
     logger.info("Database initialized")
 
 
-def fulfillment_job_worker(producer: BaseKafkaProducer, poll_interval_seconds: int = 10, fulfillment_delay_seconds: int = 5):
-    """
-    Background worker that simulates order fulfillment process.
-    
-    Periodically checks for orders in PAID status and publishes order.fulfilled events.
-    
-    Args:
-        producer: Kafka producer for publishing events
-        poll_interval_seconds: How often to check for PAID orders (default 10 seconds)
-        fulfillment_delay_seconds: Delay before order is marked fulfilled (default 5 seconds)
-    """
+def fulfillment_job_worker(poll_interval_seconds: int = 10, fulfillment_delay_seconds: int = 5):
+    """Queue one durable fulfillment result per paid order."""
+    from fulfillment import queue_fulfillment_events
+
     logger.info(f"Fulfillment job started (poll every {poll_interval_seconds}s, delay {fulfillment_delay_seconds}s)")
-    
     while True:
         try:
-            from repository import OrderRepository
-            
-            db_session = SessionLocal()
-            repo = OrderRepository(db_session)
-            
-            # Get orders that are PAID and ready for fulfillment
-            now = datetime.now(ZoneInfo("America/Los_Angeles"))
-            fulfillment_cutoff = now - timedelta(seconds=fulfillment_delay_seconds)
-            
-            # Query database for PAID orders older than cutoff
-            from models import Order
-            orders = db_session.query(Order).filter(
-                Order.status == "PAID",
-                Order.updated_at <= fulfillment_cutoff,
-            ).limit(10).all()
-            
-            if orders:
-                logger.info(f"Found {len(orders)} orders ready for fulfillment")
-                
-                for order in orders:
-                    try:
-                        # Publish fulfillment event
-                        event_id = str(uuid4())
-                        event_data = {
-                            "event_id": event_id,
-                            "event_type": "order.fulfilled",
-                            "correlation_id": order.correlation_id,  # Use the original saga correlation_id from order
-                            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
-                            "order_id": order.order_id,
-                            "user_id": order.user_id,
-                            "tracking_number": f"TRK-{order.order_id[-8:]}",
-                            "shipped_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
-                        }
-                        
-                        producer.publish("order.fulfilled", event_data)
-                        logger.info(f"Published order.fulfilled event for order {order.order_id}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error publishing fulfillment event for order {order.order_id}: {e}")
-            
-            db_session.close()
-            
+            queued = queue_fulfillment_events(SessionLocal, fulfillment_delay_seconds)
+            if queued:
+                logger.info("Queued fulfillment for %s paid orders", queued)
         except Exception as e:
             logger.error(f"Error in fulfillment job: {e}")
-        
-        # Wait before next check
         time.sleep(poll_interval_seconds)
 
 
@@ -248,6 +209,9 @@ def handle_order_event(event, session_factory=SessionLocal):
             "order.fulfilled": saga.handle_order_fulfilled,
         }
         handlers[event.event_type](event)
+    except SQLAlchemyError as error:
+        db_session.rollback()
+        raise RetryableProcessingError("Order database transaction failed") from error
     except Exception:
         db_session.rollback()
         raise
@@ -286,10 +250,9 @@ async def lifespan(app: FastAPI):
         raise
 
     # Start outbox publisher
-    from saga_handler import OutboxPublisher
+    from outbox import OutboxPublisher
 
-    db = SessionLocal()
-    outbox_publisher = OutboxPublisher(db, producer)
+    outbox_publisher = OutboxPublisher(SessionLocal, producer)
     outbox_publisher.start()
     logger.info("Outbox publisher started")
 
@@ -323,7 +286,6 @@ async def lifespan(app: FastAPI):
     # Start fulfillment job as background thread
     fulfillment_thread = threading.Thread(
         target=fulfillment_job_worker,
-        args=(producer,),
         kwargs={
             "poll_interval_seconds": int(os.getenv("POLL_INTERVAL_SECONDS", "10")),
             "fulfillment_delay_seconds": int(os.getenv("FULFILLMENT_DELAY_SECONDS", "5")),

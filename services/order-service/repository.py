@@ -1,10 +1,9 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from models import Order, OutboxEvent, ProcessedEvent
@@ -39,6 +38,10 @@ class OrderRepository:
         """Get order by order_id."""
         return self.db.query(Order).filter(Order.order_id == order_id).first()
 
+    def get_order_for_update(self, order_id: str) -> Optional[Order]:
+        """Serialize all saga transitions for one order until commit."""
+        return self.db.query(Order).filter(Order.order_id == order_id).with_for_update().first()
+
     def get_orders_by_user(self, user_id: str) -> list:
         """Get all orders for a specific user."""
         return self.db.query(Order).filter(Order.user_id == user_id).order_by(Order.created_at.desc()).all()
@@ -65,18 +68,6 @@ class OrderRepository:
         self.db.flush()
         logger.info(f"Added outbox event {event_type} for order {order_id}")
         return outbox_event
-
-    def get_unpublished_events(self) -> list:
-        """Get all unpublished outbox events."""
-        return self.db.query(OutboxEvent).filter(OutboxEvent.published == "N").all()
-
-    def mark_event_published(self, event_id) -> None:
-        """Mark outbox event as published."""
-        event = self.db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
-        if event:
-            event.published = "Y"
-            event.published_at = datetime.now(ZoneInfo("America/Los_Angeles"))
-            self.db.flush()
 
     def is_event_processed(self, event_id: str) -> bool:
         """Check if event has been processed."""

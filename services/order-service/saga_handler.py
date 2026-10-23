@@ -139,10 +139,10 @@ EVENT HANDLERS (SagaHandler class):
        - Marks event processed to ensure idempotency
        - Inventory Service receives order.cancelled and auto-releases reserved stock
 
-OUTBOX PUBLISHER (OutboxPublisher class):
+OUTBOX PUBLISHER (outbox.py):
     Background thread that ensures reliable event publishing:
     - Runs continuously in daemon thread
-    - Polls unpublished events every 2 seconds (configurable)
+    - Claims unpublished events with short PostgreSQL leases
     - Publishes to Kafka with error handling
     - Marks as published only after Kafka confirms receipt
     - Catches and logs errors without crashing
@@ -173,14 +173,13 @@ TESTING SCENARIOS:
 
 import json
 import logging
-import threading
-import time
 from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from kafka_client import RetryableProcessingError
 from repository import OrderRepository
 from shared.metrics import (
     track_order_status,
@@ -200,6 +199,26 @@ class SagaHandler:
         """Initialize saga handler."""
         self.db = db_session
         self.repo = OrderRepository(db_session)
+
+    def _order_for_transition(self, event, expected_status, waiting_statuses=()):
+        """Lock, deduplicate, and validate before any state or outbox change."""
+        order = self.repo.get_order_for_update(event.order_id)
+        if order is None:
+            raise RetryableProcessingError(f"Order {event.order_id} is not available yet")
+        if self.repo.is_event_processed(event.event_id):
+            track_deduplicated_event("order-service")
+            return None
+        if order.status in waiting_statuses:
+            raise RetryableProcessingError(
+                f"{event.event_type} arrived while order {event.order_id} is {order.status}"
+            )
+        if order.status != expected_status:
+            logger.warning("Ignoring %s for order %s in state %s", event.event_type,
+                           event.order_id, order.status)
+            self.repo.mark_event_processed(event.event_id, event.event_type)
+            self.db.commit()
+            return None
+        return order
 
     def handle_cart_checkout_initiated(self, event) -> None:
         """Handle cart.checkout_initiated event - creates order."""
@@ -257,16 +276,8 @@ class SagaHandler:
         Production-style flow: Inventory reserved BEFORE payment.
         Now that inventory is reserved, trigger payment processing.
         """
-        # Idempotency check to prevent duplicate handling
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            # Track deduplicated event
-            track_deduplicated_event("order-service")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
+        order = self._order_for_transition(event, "PENDING")
+        if order is None:
             return
 
         # Update order status to reflect inventory is reserved
@@ -305,17 +316,8 @@ class SagaHandler:
         Inventory is not available - cancel order WITHOUT charging customer.
         This is the key advantage of inventory-first flow: no refunds needed.
         """
-        # Idempotency check to prevent duplicate handling
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            # Track deduplicated event
-            track_deduplicated_event("order-service")
-            return
-
-        # Get order details
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
+        order = self._order_for_transition(event, "PENDING")
+        if order is None:
             return
 
         # Cancel order (PENDING → CANCELLED)
@@ -354,16 +356,8 @@ class SagaHandler:
 
     def handle_payment_processed(self, event) -> None:
         """Handle payment.processed event - confirms order."""
-        # Idempotency check to prevent duplicate handling
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            # Track deduplicated event
-            track_deduplicated_event("order-service")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
+        order = self._order_for_transition(event, "RESERVATION_CONFIRMED", ("PENDING",))
+        if order is None:
             return
 
         self.repo.update_order_status(event.order_id, "PAID")
@@ -410,16 +404,8 @@ class SagaHandler:
 
     def handle_payment_failed(self, event) -> None:
         """Handle payment.failed event - cancels order."""
-        # Idempotency check to prevent duplicate handling
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            # Track deduplicated event
-            track_deduplicated_event("order-service")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
+        order = self._order_for_transition(event, "RESERVATION_CONFIRMED", ("PENDING",))
+        if order is None:
             return
 
         self.repo.update_order_status(event.order_id, "CANCELLED")
@@ -457,14 +443,10 @@ class SagaHandler:
 
     def handle_order_fulfilled(self, event) -> None:
         """Handle order.fulfilled event from fulfillment service/job."""
-        # Idempotency check to prevent duplicate handling
-        if self.repo.is_event_processed(event.event_id):
-            logger.info(f"Event {event.event_id} already processed")
-            return
-
-        order = self.repo.get_order(event.order_id)
-        if not order:
-            logger.error(f"Order {event.order_id} not found")
+        order = self._order_for_transition(
+            event, "PAID", ("PENDING", "RESERVATION_CONFIRMED")
+        )
+        if order is None:
             return
 
         self.repo.update_order_status(event.order_id, "FULFILLED")
@@ -474,56 +456,3 @@ class SagaHandler:
 
         self.db.commit()
         logger.info(f"Order {event.order_id} fulfilled (status updated to FULFILLED)")
-
-
-class OutboxPublisher:
-    """Background thread to publish outbox events every few seconds."""
-
-    def __init__(self, db_session: Session, producer, poll_interval: int = 2):
-        """Initialize publisher."""
-        self.db = db_session
-        self.producer = producer
-        self.poll_interval = poll_interval
-        self.running = True
-
-    def start(self) -> threading.Thread:
-        """Start publisher thread."""
-        thread = threading.Thread(target=self._publish_loop, daemon=True)
-        thread.start()
-        logger.info("Outbox publisher started")
-        return thread
-
-    def _publish_loop(self) -> None:
-        """Poll and publish outbox events."""
-        repo = OrderRepository(self.db)
-        
-        while self.running:
-            try:
-                unpublished = repo.get_unpublished_events()
-                
-                if unpublished:
-                    logger.info(f"Found {len(unpublished)} unpublished outbox events")
-                
-                for event in unpublished:
-                    try:
-                        event_data = json.loads(event.event_data)
-                        logger.info(f"Publishing outbox event: topic={event.event_type}, order_id={event.order_id}, event_id={event_data.get('event_id')}")
-                        self.producer.publish(event.event_type, event_data)
-                        repo.mark_event_published(event.id)
-                        self.db.commit()
-                        logger.info(f"Successfully published outbox event {event.event_type} for order {event.order_id}")
-                    except Exception as e:
-                        self.db.rollback()
-                        logger.error(f"Error publishing outbox event: {e}", exc_info=True)
-
-                time.sleep(self.poll_interval)
-                
-            except Exception as e:
-                self.db.rollback()
-                logger.error(f"Error in outbox publisher: {e}", exc_info=True)
-                time.sleep(self.poll_interval)
-
-    def stop(self) -> None:
-        """Stop publisher thread."""
-        self.running = False
-        logger.info("Outbox publisher stopped")

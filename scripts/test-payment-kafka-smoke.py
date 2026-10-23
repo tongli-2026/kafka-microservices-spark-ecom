@@ -1,7 +1,8 @@
-"""Smoke-test Cart -> Order -> Inventory -> Payment on the running Compose stack.
+"""Smoke-test Cart -> Order -> Inventory -> Payment -> Fulfillment on Compose.
 
 Creates one real order. Successful simulated payment consumes one stock unit;
 failed payment must release the reservation and restore that stock unit.
+Successful payment must produce one durable fulfillment event and shipment notice.
 The created order and payment remain in PostgreSQL as test data.
 """
 
@@ -42,6 +43,11 @@ def read_state(order_id, product_id):
             payment = cursor.fetchone()
             cursor.execute("SELECT event_id FROM payment_results WHERE order_id = %s", (order_id,))
             result = cursor.fetchone()
+            cursor.execute(
+                "SELECT event_id, event_type, published FROM payment_outbox_events WHERE order_id = %s",
+                (order_id,),
+            )
+            payment_outbox = cursor.fetchone()
             cursor.execute("SELECT status FROM inventory_orders WHERE order_id = %s", (order_id,))
             inventory = cursor.fetchone()
             cursor.execute(
@@ -51,7 +57,31 @@ def read_state(order_id, product_id):
             outbox = cursor.fetchone()
             cursor.execute("SELECT stock FROM products WHERE product_id = %s", (product_id,))
             stock = cursor.fetchone()[0]
-    return payment, result, inventory, outbox, stock
+            notification = None
+            if result:
+                cursor.execute(
+                    "SELECT status FROM notification_deliveries "
+                    "WHERE source_event_id = %s AND notification_type IN ('order.confirmed', 'order.cancelled')",
+                    (result[0],),
+                )
+                notification = cursor.fetchone()
+            cursor.execute(
+                "SELECT event_data, published FROM outbox_events "
+                "WHERE order_id = %s AND event_type = 'order.fulfilled'",
+                (order_id,),
+            )
+            fulfillment_rows = cursor.fetchall()
+            shipment_notification = None
+            if len(fulfillment_rows) == 1:
+                fulfillment_id = json.loads(fulfillment_rows[0][0])["event_id"]
+                cursor.execute(
+                    "SELECT status FROM notification_deliveries "
+                    "WHERE source_event_id = %s AND notification_type = 'order.fulfilled'",
+                    (fulfillment_id,),
+                )
+                shipment_notification = cursor.fetchone()
+    return (payment, result, payment_outbox, inventory, outbox,
+            notification, stock, fulfillment_rows, shipment_notification)
 
 
 def main():
@@ -74,7 +104,7 @@ def main():
     })
     request_json(f"{CART_URL}/cart/{user_id}/checkout", {})
 
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + 90
     order_id = None
     last_state = None
     while time.monotonic() < deadline:
@@ -82,10 +112,16 @@ def main():
         if orders:
             order_id = orders[0]["order_id"]
             order_status = orders[0]["status"]
-            payment, result, inventory, outbox, stock_after = read_state(order_id, product_id)
-            last_state = (order_status, payment, result, inventory, outbox, stock_after)
-            if payment and result and inventory and outbox and result[0] and outbox == ("inventory.reserved", True):
-                if payment[0] == "SUCCESS" and order_status in ("PAID", "FULFILLED"):
+            (payment, result, payment_outbox, inventory, outbox, notification,
+             stock_after, fulfillment_rows, shipment_notification) = read_state(order_id, product_id)
+            last_state = (order_status, payment, result, payment_outbox, inventory,
+                          outbox, notification, stock_after, fulfillment_rows, shipment_notification)
+            if (payment and result and payment_outbox and inventory and outbox and notification
+                    and result[0] and payment_outbox[0] == result[0] and payment_outbox[2]
+                    and notification[0] == "SENT" and outbox == ("inventory.reserved", True)):
+                if (payment[0] == "SUCCESS" and order_status == "FULFILLED"
+                        and len(fulfillment_rows) == 1 and fulfillment_rows[0][1] == "Y"
+                        and shipment_notification == ("SENT",)):
                     assert inventory[0] == "RESERVED", inventory
                     assert stock_after == stock_before - 1, (stock_before, stock_after)
                     break
@@ -101,11 +137,20 @@ def main():
         "order_status": order_status,
         "payment_status": payment[0],
         "payment_result_event_id": result[0],
+        "payment_outbox_published": payment_outbox[2],
+        "notification_status": notification[0],
         "inventory_status": inventory[0],
         "inventory_outbox_published": outbox[1],
         "product_id": product_id,
         "stock_before": stock_before,
         "stock_after": stock_after,
+        "fulfillment_event_id": (
+            json.loads(fulfillment_rows[0][0])["event_id"] if fulfillment_rows else None
+        ),
+        "fulfillment_outbox_count": len(fulfillment_rows),
+        "shipment_notification_status": (
+            shipment_notification[0] if shipment_notification else None
+        ),
     }, indent=2))
 
 
