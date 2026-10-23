@@ -71,7 +71,7 @@ class EmailSender:
             msg.attach(MIMEText(body, "plain"))
 
             # Connect to Mailpit SMTP (no authentication needed)
-            with smtplib.SMTP(self.mailpit_host, self.mailpit_port) as server:
+            with smtplib.SMTP(self.mailpit_host, self.mailpit_port, timeout=30) as server:
                 server.send_message(msg)
 
             logger.info(f"Email sent to {to_email}: {subject}")

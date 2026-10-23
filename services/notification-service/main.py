@@ -62,6 +62,8 @@ from time import time
 from fastapi import FastAPI  # Web framework
 from pydantic_settings import BaseSettings  # Configuration management
 from fastapi.responses import Response  # For metrics endpoint
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Import prometheus metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
@@ -77,7 +79,7 @@ from shared.metrics import (
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
 # Import shared Kafka and event utilities
-from kafka_client import BaseKafkaConsumer, BaseKafkaProducer  # Kafka message consumer and producer
+from kafka_client import BaseKafkaConsumer, BaseKafkaProducer, RetryableProcessingError
 from logging_config import setup_logging  # Centralized logging
 from topic_initializer import create_topics  # Kafka topic creation
 from events import NotificationSendEvent  # Event definition for publishing notification.send
@@ -95,15 +97,28 @@ class Settings(BaseSettings):
     mailpit_port: int = int(os.getenv("MAILPIT_PORT", "1025"))
     admin_email: str = os.getenv("ADMIN_EMAIL", "admin@kafka-ecom.local")
     notification_service_port: int = int(os.getenv("NOTIFICATION_SERVICE_PORT", "8005"))
+    postgres_user: str = os.getenv("POSTGRES_USER", "postgres")
+    postgres_password: str = os.getenv("POSTGRES_PASSWORD", "postgres")
+    postgres_host: str = os.getenv("POSTGRES_HOST", "localhost")
+    postgres_port: str = os.getenv("POSTGRES_PORT", "5432")
+    postgres_db: str = os.getenv("POSTGRES_DB", "kafka_ecom")
 
 
 settings = Settings()
+DATABASE_URL = (
+    f"postgresql://{settings.postgres_user}:{settings.postgres_password}@"
+    f"{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle."""
     logger.info("Starting Notification Service...")
+    from models import Base
+    Base.metadata.create_all(bind=engine)
 
     # Initialize Kafka topics
     try:
@@ -117,6 +132,7 @@ async def lifespan(app: FastAPI):
     def notification_consumer():
         """Consume notification-related Kafka events."""
         from email_sender import EmailSender
+        from delivery import NotificationDeliveryService
 
         consumer = BaseKafkaConsumer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -128,6 +144,18 @@ async def lifespan(app: FastAPI):
         producer = BaseKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
 
         email_sender = EmailSender(settings.mailpit_host, settings.mailpit_port)
+        delivery = NotificationDeliveryService(SessionLocal)
+
+        def send_email_once(event, recipient, subject, body):
+            started = time()
+            try:
+                sent_now = delivery.send(event, email_sender, recipient, subject, body)
+            except RetryableProcessingError:
+                track_notification("notification-service", "email", "failed", duration=time() - started)
+                raise
+            if sent_now:
+                track_notification("notification-service", "email", "sent", duration=time() - started)
+            return sent_now
 
         def handle_event(event):
             """Handle incoming events."""
@@ -156,11 +184,7 @@ Best regards,
 Kafka E-Commerce Team
 """
                 recipient_email = f"{event.user_id}@example.com"
-                start_time = time()
-                email_sent = email_sender.send_email(recipient_email, subject, body)
-                duration = time() - start_time
-                # Track notification with duration
-                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
+                email_sent = send_email_once(event, recipient_email, subject, body)
 
             elif event.event_type == "order.fulfilled":
                 # Track notification event type
@@ -186,11 +210,7 @@ Best regards,
 Kafka E-Commerce Team
 """
                 recipient_email = f"{event.user_id}@example.com"
-                start_time = time()
-                email_sent = email_sender.send_email(recipient_email, subject, body)
-                duration = time() - start_time
-                # Track notification with duration
-                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
+                email_sent = send_email_once(event, recipient_email, subject, body)
 
             elif event.event_type == "order.cancelled":
                 # Track notification event type
@@ -253,12 +273,9 @@ Kafka E-Commerce Team
                 
                 logger.info(f"Sending order cancellation email for order_id={event.order_id}, user_id={event.user_id}, reason={cancellation_source}")
                 recipient_email = f"{event.user_id}@example.com"
-                start_time = time()
-                email_sent = email_sender.send_email(recipient_email, subject, body)
-                duration = time() - start_time
-                # Track notification with duration
-                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
-                logger.info(f"Successfully sent order cancellation email for order_id={event.order_id}")
+                email_sent = send_email_once(event, recipient_email, subject, body)
+                if email_sent:
+                    logger.info(f"Successfully sent order cancellation email for order_id={event.order_id}")
 
             elif event.event_type == "inventory.low":
                 # Track notification event type
@@ -278,11 +295,7 @@ Please restock or re-evaluate this product.
 Kafka E-Commerce Team
 """
                 recipient_email = settings.admin_email
-                start_time = time()
-                email_sent = email_sender.send_email(recipient_email, subject, body)
-                duration = time() - start_time
-                # Track notification with duration
-                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
+                email_sent = send_email_once(event, recipient_email, subject, body)
 
             elif event.event_type == "inventory.depleted":
                 # Track notification event type
@@ -303,11 +316,10 @@ Please restock or re-evaluate this product immediately.
 Kafka E-Commerce Team
 """
                 recipient_email = settings.admin_email
-                start_time = time()
-                email_sent = email_sender.send_email(recipient_email, subject, body)
-                duration = time() - start_time
-                # Track notification with duration
-                track_notification("notification-service", "email", "sent" if email_sent else "failed", duration=duration)
+                email_sent = send_email_once(event, recipient_email, subject, body)
+
+            if email_sent is None:
+                return  # Already delivered; do not publish another tracking event.
 
             # Publish notification.send event to Kafka to track all notification processing
             # Always publish for every event received, regardless of success/failure

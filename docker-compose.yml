@@ -285,6 +285,8 @@ services:
         condition: service_started
       kafka-broker-3:
         condition: service_started
+      postgres:
+        condition: service_healthy
       # mailpit is a critical dependency for the notification-service, as it relies on Mailpit to capture and manage outgoing emails for testing purposes.
       # Therefore, we use the `service_healthy` condition to ensure that the notification-service only starts after Mailpit is ready to accept connections and operate correctly. 
       mailpit:
@@ -296,6 +298,11 @@ services:
       - MAILPIT_HOST=mailpit
       - MAILPIT_PORT=1025
       - ADMIN_EMAIL=admin@kafka-ecom.local
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=kafka_ecom
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
       - TZ=America/Los_Angeles
 
   # Spark Master - Cluster Manager
