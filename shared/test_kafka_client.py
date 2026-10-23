@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from confluent_kafka import TopicPartition
 from events import OrderCreatedEvent
-from kafka_client import BaseKafkaConsumer, BaseKafkaProducer, KafkaDeliveryError
+from kafka_client import BaseKafkaConsumer, BaseKafkaProducer, KafkaDeliveryError, RetryableProcessingError
 
 
 class FakeMessage:
@@ -106,6 +106,16 @@ class KafkaConsumerOffsetTest(unittest.TestCase):
                 self.client._process_message(
                     self.message,
                     lambda _event: (_ for _ in ()).throw(KafkaDeliveryError("result unavailable")),
+                )
+        self.assertEqual(self.kafka.commits, [])
+        self.assertEqual(self.dlq.messages, [])
+
+    def test_retryable_business_failure_keeps_offset_uncommitted(self):
+        with patch("kafka_client.time.sleep"):
+            with self.assertRaises(RetryableProcessingError):
+                self.client._process_message(
+                    self.message,
+                    lambda _event: (_ for _ in ()).throw(RetryableProcessingError("SMTP unavailable")),
                 )
         self.assertEqual(self.kafka.commits, [])
         self.assertEqual(self.dlq.messages, [])

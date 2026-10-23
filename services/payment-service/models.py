@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, String, func
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -34,3 +34,21 @@ class PaymentResult(Base):
     order_id = Column(String(255), primary_key=True)
     event_id = Column(String(36), nullable=False)
     correlation_id = Column(String(255), nullable=False)
+
+
+class PaymentOutboxEvent(Base):
+    """One durable outgoing payment result per order."""
+
+    __tablename__ = "payment_outbox_events"
+
+    order_id = Column(String(255), primary_key=True)
+    event_id = Column(String(36), nullable=False, unique=True)
+    event_type = Column(String(100), nullable=False)
+    event_data = Column(Text, nullable=False)
+    published = Column(Boolean, nullable=False, default=False)
+    published_at = Column(DateTime, nullable=True)
+    claim_token = Column(String(36), nullable=True)
+    claimed_until = Column(DateTime, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)

@@ -141,6 +141,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Global instances
 producer: BaseKafkaProducer = None
+outbox_publisher = None
 
 
 def init_db():
@@ -149,13 +150,17 @@ def init_db():
 
     logger.info("Initializing database...")
     Base.metadata.create_all(bind=engine)
+    from outbox import backfill_payment_outbox
+    with SessionLocal.begin() as db:
+        queued = backfill_payment_outbox(db)
+    logger.info("Queued %s existing payment results for outbox delivery", queued)
     logger.info("Database initialized")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle."""
-    global producer
+    global producer, outbox_publisher
 
     logger.info("Starting Payment Service...")
 
@@ -181,6 +186,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize Kafka producer: {e}")
         raise
+
+    from outbox import PaymentOutboxPublisher
+    outbox_publisher = PaymentOutboxPublisher(SessionLocal, producer)
+    outbox_publisher.start()
 
     # Start consumer thread for order.reservation_confirmed events
     def payment_consumer():
@@ -214,6 +223,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down Payment Service...")
+    if outbox_publisher:
+        outbox_publisher.stop()
     if producer:
         producer.flush()
 

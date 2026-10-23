@@ -164,6 +164,10 @@ class KafkaDeliveryError(RuntimeError):
     """The broker did not confirm delivery of a produced message."""
 
 
+class RetryableProcessingError(RuntimeError):
+    """Business work is unfinished; keep the source offset uncommitted."""
+
+
 class BaseKafkaProducer:
     """
     Base Kafka producer with JSON serialization and delivery callbacks.
@@ -379,9 +383,8 @@ class BaseKafkaConsumer:
         for attempt in range(max_retries):
             try:
                 handler_fn(event)
-            except KafkaDeliveryError:
-                # The business transaction may already be committed. Keep the
-                # input uncommitted so a replay can publish its stable result.
+            except (KafkaDeliveryError, RetryableProcessingError):
+                # Transient work must be retried, never acknowledged via DLQ.
                 if attempt == max_retries - 1:
                     raise
             except Exception as error:
